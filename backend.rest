@@ -1,0 +1,118 @@
+
+### Login user
+POST http://localhost:3000/auth/login
+Content-Type: application/json
+
+{
+    "username": "admin",
+    "password": "Admin123!"
+}
+
+### Get authenticated user
+GET http://localhost:3000/auth/me
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjNmZWVmZjBjLTg1MTAtNDBjNi1hOWNhLWNlYzA2ZDNjYTcxZiIsInVzZXJuYW1lIjoiZG9kbyIsInJvbGUiOiJBRE1JTiIsImlhdCI6MTc4MjE4NDc0NCwiZXhwIjoxNzgyMjcxMTQ0fQ.8jNLh3UAfyEmTwcryPPycSlLBJPdPN8Qg62bsXl66oM
+
+### Create user
+POST http://localhost:3000/users
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIyOTE3NDEsImV4cCI6MTc4MjM3ODE0MX0.WGNrFI77q3pTyNI9HjlGJOIgO0cUvujKMxL4SnQcnvs
+
+{
+    "username": "alwi",
+    "password": "alwibutut",
+    "role": "MITRA"
+}
+
+### Get all users
+GET http://localhost:3000/users
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+### Delete user
+DELETE http://localhost:3000/users/04e6bcb0-22b5-4336-8345-5f160c061505
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+### Get all categories
+GET http://localhost:3000/categories
+
+### Create category
+POST http://localhost:3000/categories
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "nama": "Router",
+    "deskripsi": "-",
+    "safetyStock": 10
+}
+
+### Update category
+PUT http://localhost:3000/categories/3
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "nama": "Access Point"
+}
+
+### Delete category
+DELETE http://localhost:3000/categories/1
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+### Get all brands
+GET http://localhost:3000/brands
+
+### Create brand
+POST http://localhost:3000/brands
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "nama": "FiberHome",
+    "origin": "China",
+    "identifier": "FH",
+    "categoryId": 3
+}
+
+### Update brand
+PUT http://localhost:3000/brands/1
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "nama": "Samsung Electronics"
+}
+
+### Delete brand
+DELETE http://localhost:3000/brands/1
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+### Get all locations
+GET http://localhost:3000/locations
+
+### Create location Rak
+POST http://localhost:3000/locations
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "name": "Rak Utama A1",
+    "type": "Rak",
+    "owner": "KP",
+    "levels": [
+        { "name": "Level 1", "capacity": 10, "brandRule": "Campuran" },
+        { "name": "Level 2", "capacity": 15, "brandRule": "Campuran" }
+    ]
+}
+
+### Create location Kardus
+POST http://localhost:3000/locations
+Content-Type: application/json
+Authorization: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI5ZjE3MmQ0LTEwZmMtNDZmNi1iZWM0LWMwOGNkNDJkMjA4YyIsInVzZXJuYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJpYXQiOjE3ODIxOTQ4NzUsImV4cCI6MTc4MjI4MTI3NX0.5-E1dUyfE6hBaUU8J9Zg-wGIUu5g6dGQlnS2_UYcNKA
+
+{
+    "name": "Kardus K-01",
+    "type": "Kardus",
+    "owner": "KP",
+    "capacity": 5,
+    "brandRule": "Campuran"
+}

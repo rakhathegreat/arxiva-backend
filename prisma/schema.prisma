@@ -1,0 +1,232 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  MITRA
+}
+
+enum Status {
+  tersedia
+  digunakan
+  rusak
+  hilang
+}
+
+enum NotificationType {
+  SYSTEM
+  REQUEST
+  STOCK_IN
+  STOCK_OUT
+  STOCK_LOW
+}
+
+enum TransactionCategory {
+  MASUK
+  KELUAR
+  RUSAK
+  HILANG
+}
+
+enum LocationType {
+  KARDUS
+  RAK
+}
+
+enum ReferenceType {
+  ITEM
+  TRANSACTION
+  LOCATION
+  USER
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  username           String   @unique
+  password           String
+  role               Role     @default(MITRA)
+  isAktif            Boolean  @default(true)
+  googleConnected    Boolean  @default(false)
+  googleEmail        String?
+  googleAccessToken  String?  @db.Text
+  googleRefreshToken String?  @db.Text
+
+  profile   UserProfile?
+
+  items          Item[]
+  transactions   Transaction[]
+  notifications  Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model UserProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email         String
+  nama          String
+  telepon       String
+  alamat        String
+  code          String?
+  partnerType   String?
+  contactPerson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Category {
+  id          Int      @id @default(autoincrement())
+  nama        String
+  deskripsi   String?
+  safetyStock Int      @default(0)
+
+  brands      Brand[]
+  items       Item[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt 
+}
+
+model Brand {
+  id          Int      @id @default(autoincrement())
+  nama        String   @unique
+  origin      String
+  identifier  String   @unique
+
+  categoryId  Int
+  category    Category @relation(fields: [categoryId], references: [id])
+
+  items       Item[]
+  levelRules  Level[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt 
+}
+
+model Notification {
+  id            String            @id @default(uuid())
+
+  userId        String
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title         String
+  message       String
+  type          NotificationType  @default(SYSTEM)
+
+  isRead        Boolean           @default(false)
+
+  referenceId   String?
+  referenceType ReferenceType?
+
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt 
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
+
+model Item {
+  id                String   @id @default(uuid())
+
+  createdById       String
+  createdBy         User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  serialNumber      String   @unique
+
+  categoryId        Int
+  category          Category  @relation(fields: [categoryId], references: [id])
+
+  brandId           Int
+  brand             Brand  @relation(fields: [brandId], references: [id])
+
+  status            Status    @default(tersedia)
+
+  levelId           String
+  level             Level     @relation(fields: [levelId], references: [id], onDelete: Cascade)
+
+  entryDate         DateTime
+  exitDate          DateTime?
+
+  transactions       Transaction[]
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([createdById])
+  @@index([createdAt])
+}
+
+model Transaction {
+  id          String              @id @default(uuid())
+  
+  transactionType    TransactionCategory
+
+  itemId      String
+  item        Item                @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  serialNumber String
+  brand        String
+  category     String
+  paNumber     String
+
+  origin      String?
+  destination String?
+
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt 
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Location {
+  id          String      @id     @default(uuid())
+  name        String      @unique
+  type        LocationType
+  isActive    Boolean     @default(true)
+
+  levels      Level[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt 
+}
+
+model Level {
+  id          String      @id     @default(uuid())
+  locationId  String
+  location    Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  name        String      
+  isActive    Boolean     @default(true)
+  capacity    Int         @default(0)
+
+  brandRuleId Int?
+  brandRule   Brand? @relation(fields: [brandRuleId], references: [id], onDelete: Cascade)
+
+  sheetId     String?
+  sheetUrl    String?
+
+  items Item[]
+
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt 
+
+  @@unique([locationId, name])
+}

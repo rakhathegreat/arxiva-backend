@@ -1,0 +1,40 @@
+import 'dotenv/config';
+import express from 'express';
+import cors from 'cors';
+import authRoutes from './src/routes/auth.routes.js';
+import userRoutes from './src/routes/user.routes.js';
+
+import categoryRoutes from './src/routes/category.routes.js';
+import brandRoutes from './src/routes/brand.routes.js';
+import locationRoutes from './src/routes/location.routes.js';
+import itemRoutes from './src/routes/item.routes.js';
+import transactionRoutes from './src/routes/transaction.routes.js';
+
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+const HOST = process.env.HOST || 'localhost';
+
+// CORS
+app.use(cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// Middleware
+app.use(express.json());
+
+// Routes
+app.use("/auth", authRoutes);
+app.use("/users", userRoutes);
+app.use("/categories", categoryRoutes);
+app.use("/brands", brandRoutes);
+app.use("/locations", locationRoutes);
+app.use("/items", itemRoutes);
+app.use("/transactions", transactionRoutes);
+
+// Start the server
+app.listen(PORT, HOST, () => {
+    console.log(`Backend Server is running on port ${PORT}`);
+});

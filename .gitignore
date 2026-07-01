@@ -1,0 +1,4 @@
+arxiva-service-account-key.json
+.env
+node_modules
+/src/generated/prisma
