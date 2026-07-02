@@ -1,0 +1,55 @@
+services:
+  caddy:
+    image: caddy:latest
+    container_name: caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app-network
+
+  mariadb:
+    image: mariadb:11
+    container_name: mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: "Rotio_lempuyangan2026"
+      MYSQL_DATABASE: "arxiva"
+      MYSQL_USER: "admin"
+      MYSQL_PASSWORD: "arxiva123"
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - app-network
+
+  backend:
+    build: .
+    env_file:
+      - .env
+    container_name: backend
+    restart: unless-stopped
+    depends_on:
+      - mariadb
+    environment:
+      DATABASE_URL: "mysql://admin:arxiva123@mariadb:3306/arxiva"
+      NODE_ENV: "production"
+      PORT: "3000"
+    expose:
+      - "3000"
+    networks:
+      - app-network
+volumes:
+  caddy_data:
+  caddy_config:
+  mariadb_data:
+
+networks:
+  app-network:
+    driver: bridge
