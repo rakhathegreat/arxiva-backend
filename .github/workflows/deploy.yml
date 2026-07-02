@@ -36,7 +36,7 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_KEY }}
           script: |
-            cd /home/arxiva-backend
+            cd /home/taslim/arxiva-backend
 
             docker compose pull
 
