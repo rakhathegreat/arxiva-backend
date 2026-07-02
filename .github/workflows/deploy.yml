@@ -38,10 +38,14 @@ jobs:
           script: |
             cd /home/taslim/arxiva-backend
 
+            cat > .env <<EOF
+            ${{ secrets.ENV_FILE }}
+            EOF
+
             docker compose pull
 
             docker compose run --rm backend npx prisma migrate deploy
 
-            docker compose up -d
+            docker compose up -d --remove-orphans
 
             docker image prune -f
