@@ -12,12 +12,6 @@ export default function setupSwagger(app, port) {
                     version: '1.0.0',
                     description: 'API documentation for Taslim backend'
                 },
-                // servers: [
-                //     {
-                //         url: `http://localhost:${port}`,
-                //         description: 'Local server'
-                //     }
-                // ]
             },
             apis: ['./src/routes/*.js']
         };
