@@ -30,7 +30,7 @@ services:
       - app-network
 
   backend:
-    build: .
+    image: ghcr.io/rakhathegreat/arxiva-backend:latest
     env_file:
       - .env
     container_name: backend
