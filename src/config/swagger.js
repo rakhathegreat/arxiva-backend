@@ -12,6 +12,20 @@ export default function setupSwagger(app, port) {
                     version: '1.0.0',
                     description: 'API documentation for Taslim backend'
                 },
+                security: [
+                    {
+                        bearerAuth: []
+                    }
+                ],
+                components: {
+                    securitySchemes: {
+                        bearerAuth: {
+                            type: 'http',
+                            scheme: 'bearer',
+                            bearerFormat: 'JWT'
+                        }
+                    }
+                }
             },
             apis: ['./src/routes/*.js']
         };

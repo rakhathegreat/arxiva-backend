@@ -41,8 +41,11 @@ enum TransactionCategory {
 }
 
 enum LocationType {
-  KARDUS
-  RAK
+  BRANCH
+  PARTNER
+  RACK
+  BOX
+  PALLET
 }
 
 enum ReferenceType {
@@ -68,6 +71,7 @@ model User {
   items          Item[]
   transactions   Transaction[]
   notifications  Notification[]
+  locations      UserLocation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,19 +106,19 @@ model Category {
 }
 
 model Brand {
-  id          Int      @id @default(autoincrement())
-  nama        String   @unique
-  origin      String
-  identifier  String   @unique
+  id            Int      @id @default(autoincrement())
+  nama          String   @unique
+  origin        String
+  identifier    String   @unique
 
-  categoryId  Int
-  category    Category @relation(fields: [categoryId], references: [id])
+  categoryId    Int
+  category      Category @relation(fields: [categoryId], references: [id])
 
-  items       Item[]
-  levelRules  Level[]
+  items         Item[]
+  locationRules BrandLocationRule[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt 
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt 
 }
 
 model Notification {
@@ -156,8 +160,10 @@ model Item {
 
   status            Status    @default(tersedia)
 
-  levelId           String
-  level             Level     @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  paNumber          String?
+
+  locationId        Int
+  location          Location  @relation(fields: [locationId], references: [id])
 
   entryDate         DateTime
   exitDate          DateTime?
@@ -167,66 +173,101 @@ model Item {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([status])
   @@index([createdById])
   @@index([createdAt])
+  @@index([locationId])
 }
 
 model Transaction {
-  id          String              @id @default(uuid())
+  id                    String              @id @default(uuid())
   
-  transactionType    TransactionCategory
+  transactionNumber     String              @unique
+  transactionType       TransactionCategory
 
-  itemId      String
-  item        Item                @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId                String
+  item                  Item                @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-  userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId                String
+  user                  User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   
-  serialNumber String
-  brand        String
-  category     String
-  paNumber     String
+  serialNumber          String
+  brand                 String
+  category              String
+  paNumber              String
 
-  origin      String?
-  destination String?
+  originLocationId      Int?
+  destinationLocationId Int?
 
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt 
+
+  originLocation        Location?           @relation("OriginLocation", fields: [originLocationId],references: [id])
+  destinationLocation   Location?           @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
+
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt 
 
   @@index([userId])
   @@index([createdAt])
 }
 
 model Location {
-  id          String      @id     @default(uuid())
-  name        String      @unique
-  type        LocationType
-  isActive    Boolean     @default(true)
+  id            Int           @id     @default(autoincrement())
+  name          String        @unique
+  type          LocationType
+  capacity      Int           @default(0)
+  code          String        @unique  
 
-  levels      Level[]
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt 
+  parentId      Int?
+  parent        Location?     @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Location[]    @relation("LocationHierarchy")
+
+  isActive      Boolean       @default(true)
+
+  items         Item[]
+  userLocations UserLocation[]
+
+  brandRules    BrandLocationRule[]
+
+  originTransactions      Transaction[]   @relation("OriginLocation")
+
+  destinationTransactions Transaction[]   @relation("DestinationLocation")
+
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt 
+
+  @@index([parentId])
+  @@index([type])
 }
 
-model Level {
-  id          String      @id     @default(uuid())
-  locationId  String
+model UserLocation {
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+
+  locationId  Int
   location    Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  name        String      
-  isActive    Boolean     @default(true)
-  capacity    Int         @default(0)
-
-  brandRuleId Int?
-  brandRule   Brand? @relation(fields: [brandRuleId], references: [id], onDelete: Cascade)
-
-  sheetId     String?
-  sheetUrl    String?
-
-  items Item[]
 
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt 
 
-  @@unique([locationId, name])
+  @@id([userId, locationId])
+}
+
+model BrandLocationRule {
+  id Int @id @default(autoincrement())
+
+  brandId Int
+  brand Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  locationId Int
+  location Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([brandId, locationId])
 }

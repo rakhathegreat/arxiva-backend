@@ -8,8 +8,10 @@ export const authMiddleware = async (req, res, next) => {
         return res.status(401).json({ message: 'Unauthorized. No token provided.' });
     }
 
+    const clearToken = token.replace('Bearer ', ''); // Remove 'Bearer ' prefix if present
+
     try {
-        const decoded = verifyToken(token);
+        const decoded = verifyToken(clearToken);
 
         const user = await prisma.user.findUnique({ where: { id: decoded.id } });
 
