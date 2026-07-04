@@ -162,8 +162,8 @@ model Item {
 
   paNumber          String?
 
-  locationId        Int
-  location          Location  @relation(fields: [locationId], references: [id])
+  locationId        Int?
+  location          Location?  @relation(fields: [locationId], references: [id])
 
   entryDate         DateTime
   exitDate          DateTime?
@@ -184,7 +184,7 @@ model Item {
 model Transaction {
   id                    String              @id @default(uuid())
   
-  transactionNumber     String              @unique
+  transactionNumber     String?              @unique
   transactionType       TransactionCategory
 
   itemId                String
@@ -217,7 +217,7 @@ model Location {
   name          String        @unique
   type          LocationType
   capacity      Int           @default(0)
-  code          String        @unique  
+  code          String?        @unique  
 
 
   parentId      Int?
