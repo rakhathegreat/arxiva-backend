@@ -13,6 +13,8 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ENUMS
+
 enum Role {
   ADMIN
   MITRA
@@ -55,6 +57,20 @@ enum ReferenceType {
   USER
 }
 
+enum RequestStatus {
+  DRAFT
+  MENUNGGU
+  DISETUJUI
+  DIPROSES
+  DIKIRIM
+  DITERIMA
+  SELESAI
+  DITOLAK
+  DIBATALKAN
+}
+
+// MODELS
+
 model User {
   id                 String   @id @default(uuid())
   username           String   @unique
@@ -72,6 +88,10 @@ model User {
   transactions   Transaction[]
   notifications  Notification[]
   locations      UserLocation[]
+
+  requests            Request[]             @relation("Requester")
+  allocatedRequests   RequestAllocation[]   @relation("Allocator")
+  generatedDocuments  DeliveryDocument[]    @relation("GeneratedDocument")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -101,6 +121,8 @@ model Category {
   brands      Brand[]
   items       Item[]
 
+  requestItems RequestItem[]
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt 
 }
@@ -116,6 +138,8 @@ model Brand {
 
   items         Item[]
   locationRules BrandLocationRule[]
+
+  requestItems  RequestItem[]
 
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt 
@@ -169,6 +193,8 @@ model Item {
   exitDate          DateTime?
 
   transactions       Transaction[]
+
+  requestAllocations RequestAllocation[]
 
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
@@ -270,4 +296,112 @@ model BrandLocationRule {
   createdAt DateTime @default(now())
 
   @@unique([brandId, locationId])
+}
+
+model Request {
+  id            String @id @default(uuid())
+
+  requestNumber String @unique
+
+  requesterId   String
+  requester     User @relation(fields: [requesterId], references: [id])
+
+  status        RequestStatus @default(MENUNGGU)
+
+  notes         String?
+
+  requestedAt   DateTime @default(now())
+
+  approvedAt    DateTime?
+
+  processedAt   DateTime?
+
+  shippedAt     DateTime?
+
+  receivedAt    DateTime?
+
+  completedAt   DateTime?
+
+  requestItems  RequestItem[]
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([requesterId])
+  @@index([status])
+}
+
+model RequestItem {
+  id String @id @default(uuid())
+
+  requestId String
+  request Request
+      @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  categoryId Int
+  category Category
+      @relation(fields: [categoryId], references: [id])
+
+  brandId Int?
+  brand Brand?
+      @relation(fields: [brandId], references: [id])
+
+  quantity Int
+
+  fulfilledQuantity Int @default(0)
+
+  allocations RequestAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestId])
+}
+
+model RequestAllocation {
+
+  id String @id @default(uuid())
+
+  requestItemId String
+  requestItem RequestItem
+      @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item Item
+      @relation(fields: [itemId], references: [id])
+
+  allocatedById String
+  allocatedBy User
+      @relation(fields: [allocatedById], references: [id])
+
+  allocatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@unique([requestItemId, itemId])
+}
+
+model DeliveryDocument {
+
+  id String @id @default(uuid())
+
+  requestId String @unique
+
+  request Request
+      @relation(fields: [requestId], references: [id])
+
+  documentNumber String @unique
+
+  filePath String
+
+  generatedById String
+
+  generatedBy User
+      @relation(fields: [generatedById], references: [id])
+
+  generatedAt DateTime @default(now())
+
+  signedAt DateTime?
+
+  createdAt DateTime @default(now())
 }
