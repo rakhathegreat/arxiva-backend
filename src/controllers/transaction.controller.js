@@ -1,5 +1,4 @@
 import prisma from '../utils/prisma.js';
-import { syncLevelSheet } from '../services/sheet.service.js';
 
 async function getUserId(mitra, reqUser) {
     if (reqUser && reqUser.id) return reqUser.id;
@@ -17,33 +16,20 @@ async function getUserId(mitra, reqUser) {
     return newUser.id;
 }
 
-// GET /transactions
 export const getTransactions = async (req, res) => {
     try {
         const transactions = await prisma.transaction.findMany({
             include: {
                 user: { include: { profile: true } },
-                item: true
+                item: true,
+                originLocation: true,
+                destinationLocation: true
             },
             orderBy: { createdAt: 'desc' }
         });
 
         const formattedTransactions = transactions.map(t => {
             let actualDate = t.createdAt;
-            if (t.id && t.id.startsWith("TRX-")) {
-                const parts = t.id.split("-");
-                // Scan all parts for a valid millisecond timestamp
-                // Handles: TRX-1719823456789-123 and TRX-DMG-1719823456789-123
-                for (const part of parts) {
-                    if (part && !isNaN(part)) {
-                        const ts = parseInt(part, 10);
-                        if (ts > 1000000000000) {
-                            actualDate = new Date(ts);
-                            break;
-                        }
-                    }
-                }
-            }
 
             let kategori = "Masuk";
             if (t.transactionType === "KELUAR") kategori = "Keluar";
@@ -59,19 +45,17 @@ export const getTransactions = async (req, res) => {
                 tanggalDisplay: tanggalStr,
                 waktu: waktuStr,
                 createdAt: actualDate.toISOString(),
-                nomor: t.paNumber || "-",
+                nomor: t.transactionNumber || "-",
                 kategori,
                 status: "Selesai",
                 sn: t.serialNumber,
                 merek: t.brand,
-                asal: t.origin || null,
-                tujuan: t.destination || null,
+                asal: t.originLocation?.name || null,
+                tujuan: t.destinationLocation?.name || null,
                 mitra: t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya"),
                 keterangan: `Status barang diubah menjadi ${kategori}`
             };
         });
-
-        formattedTransactions.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
         res.json(formattedTransactions);
     } catch (error) {
@@ -80,7 +64,6 @@ export const getTransactions = async (req, res) => {
     }
 };
 
-// GET /transactions/:id
 export const getTransactionById = async (req, res) => {
     try {
         const { id } = req.params;
@@ -88,11 +71,7 @@ export const getTransactionById = async (req, res) => {
             where: { id },
             include: { user: { include: { profile: true } }, item: true }
         });
-
-        if (!transaction) {
-            return res.status(404).json({ message: 'Transaction not found' });
-        }
-
+        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
         res.json(transaction);
     } catch (error) {
         console.error('Error in getTransactionById:', error);
@@ -100,7 +79,6 @@ export const getTransactionById = async (req, res) => {
     }
 };
 
-// POST /transactions
 export const createTransaction = async (req, res) => {
     try {
         const { id, tanggal, nomor, kategori, status, sn, merek, asal, tujuan, mitra, keterangan } = req.body;
@@ -109,10 +87,9 @@ export const createTransaction = async (req, res) => {
             return res.status(400).json({ message: 'SN, nomor, dan kategori wajib diisi' });
         }
 
-        let item = await prisma.item.findUnique({ where: { serialNumber: sn } });
+        let item = await prisma.item.findUnique({ where: { serialNumber: sn }, include: { brand: true, category: true } });
         if (!item) {
-            // Find first item or return error if strict relation needed
-            item = await prisma.item.findFirst();
+            item = await prisma.item.findFirst({ include: { brand: true, category: true } });
             if (!item) {
                 return res.status(404).json({ message: 'Item terkait tidak ditemukan di sistem' });
             }
@@ -136,6 +113,18 @@ export const createTransaction = async (req, res) => {
                 createdAtDate = new Date(tanggal);
             }
         }
+        
+        let originLocationId = null;
+        if (asal) {
+            let loc = await prisma.location.findFirst({ where: { name: asal } });
+            if (loc) originLocationId = loc.id;
+        }
+
+        let destinationLocationId = null;
+        if (tujuan) {
+            let loc = await prisma.location.findFirst({ where: { name: tujuan } });
+            if (loc) destinationLocationId = loc.id;
+        }
 
         const newTransaction = await prisma.transaction.create({
             data: {
@@ -147,14 +136,12 @@ export const createTransaction = async (req, res) => {
                 brand: merek || item.brand?.nama || "Unknown",
                 category: item.category?.nama || "Unknown",
                 paNumber: nomor,
-                origin: asal || null,
-                destination: tujuan || null,
+                originLocationId,
+                destinationLocationId,
                 createdAt: createdAtDate
             },
             include: { user: { include: { profile: true } }, item: true }
         });
-
-        await syncLevelSheet(item.levelId);
 
         res.status(201).json({ message: 'Transaction created successfully', transaction: newTransaction });
     } catch (error) {
@@ -163,14 +150,11 @@ export const createTransaction = async (req, res) => {
     }
 };
 
-// DELETE /transactions/:id
 export const deleteTransaction = async (req, res) => {
     try {
         const { id } = req.params;
         const transaction = await prisma.transaction.findUnique({ where: { id } });
-        if (!transaction) {
-            return res.status(404).json({ message: 'Transaction not found' });
-        }
+        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
 
         await prisma.transaction.delete({ where: { id } });
         res.json({ message: 'Transaction deleted successfully' });

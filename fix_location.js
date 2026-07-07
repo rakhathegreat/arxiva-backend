@@ -1,4 +1,91 @@
-import prisma from '../utils/prisma.js';
+const fs = require('fs');
+
+const locationController = `import prisma from '../utils/prisma.js';
+import { createSheetForLevel, updateSheetName, deleteSheet } from '../services/sheet.service.js';
+
+const getBrandRuleId = async (brandName) => {
+    if (!brandName || brandName === "Campuran") return null;
+    const brand = await prisma.brand.findUnique({ where: { nama: brandName } });
+    return brand ? brand.id : null;
+};
+
+export const getLocations = async (req, res) => {
+    try {
+        const locations = await prisma.location.findMany({
+            where: { name: { notIn: ["Keluar", "Diluar"] }, parentId: null },
+            include: {
+                children: { include: { brandRules: { include: { brand: true } }, items: true } },
+                brandRules: { include: { brand: true } },
+                items: true
+            }
+        });
+
+        const formattedLocations = locations.map(loc => {
+            const isRak = loc.type === 'RACK';
+            if (isRak) {
+                return {
+                    id: loc.id,
+                    name: loc.name,
+                    type: "Rak",
+                    isActive: loc.isActive,
+                    levels: loc.children.map(lvl => ({
+                        id: lvl.id,
+                        name: lvl.name,
+                        capacity: lvl.capacity,
+                        usedCapacity: lvl.items ? lvl.items.length : 0,
+                        brandRule: lvl.brandRules && lvl.brandRules.length > 0 ? lvl.brandRules[0].brand.nama : "Campuran",
+                        isActive: lvl.isActive,
+                        sheetUrl: null
+                    }))
+                };
+            } else {
+                return {
+                    id: loc.id,
+                    name: loc.name,
+                    type: "Kardus",
+                    isActive: loc.isActive,
+                    capacity: loc.capacity,
+                    usedCapacity: loc.items ? loc.items.length : 0,
+                    brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
+                    sheetUrl: null
+                };
+            }
+        });
+
+        res.json(formattedLocations);
+    } catch (error) {
+        console.error('Error in getLocations:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const createLocation = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const updateLocation = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const createLevel = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const updateLevel = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const toggleLocation = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const toggleLevel = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const deleteLocation = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+export const deleteLevel = async (req, res) => {
+    res.status(501).json({ message: 'Not implemented for new schema yet' });
+};
+`;
+
+const itemController = `import prisma from '../utils/prisma.js';
 import { createSheetForLevel, syncLevelSheet } from '../services/sheet.service.js';
 
 async function getLocationId(lokasiPenyimpanan) {
@@ -78,7 +165,7 @@ export const getItems = async (req, res) => {
                 if (item.location.name === "Keluar" || item.location.name === "Diluar") {
                     lokasiPenyimpanan = "Diluar";
                 } else if (item.location.parent) {
-                    lokasiPenyimpanan = `${item.location.parent.name} - ${item.location.name}`;
+                    lokasiPenyimpanan = \`\${item.location.parent.name} - \${item.location.name}\`;
                 } else {
                     lokasiPenyimpanan = item.location.name;
                 }
@@ -271,3 +358,175 @@ export const deleteItem = async (req, res) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+`;
+
+const transactionController = `import prisma from '../utils/prisma.js';
+
+async function getUserId(mitra, reqUser) {
+    if (reqUser && reqUser.id) return reqUser.id;
+    if (mitra && mitra !== "KP Tasikmalaya") {
+        const u = await prisma.user.findFirst({
+            where: { OR: [{ username: mitra }, { profile: { nama: mitra } }] }
+        });
+        if (u) return u.id;
+    }
+    const firstUser = await prisma.user.findFirst({ where: { role: "ADMIN" } }) || await prisma.user.findFirst();
+    if (firstUser) return firstUser.id;
+    const newUser = await prisma.user.create({
+        data: { username: "admin_default", password: "password", role: "ADMIN" }
+    });
+    return newUser.id;
+}
+
+export const getTransactions = async (req, res) => {
+    try {
+        const transactions = await prisma.transaction.findMany({
+            include: {
+                user: { include: { profile: true } },
+                item: true,
+                originLocation: true,
+                destinationLocation: true
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        const formattedTransactions = transactions.map(t => {
+            let actualDate = t.createdAt;
+
+            let kategori = "Masuk";
+            if (t.transactionType === "KELUAR") kategori = "Keluar";
+            if (t.transactionType === "RUSAK") kategori = "Rusak";
+            if (t.transactionType === "HILANG") kategori = "Hilang";
+
+            const tanggalStr = actualDate.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+            const waktuStr = actualDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+
+            return {
+                id: t.id,
+                tanggal: actualDate.toISOString().slice(0, 10),
+                tanggalDisplay: tanggalStr,
+                waktu: waktuStr,
+                createdAt: actualDate.toISOString(),
+                nomor: t.transactionNumber || "-",
+                kategori,
+                status: "Selesai",
+                sn: t.serialNumber,
+                merek: t.brand,
+                asal: t.originLocation?.name || null,
+                tujuan: t.destinationLocation?.name || null,
+                mitra: t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya"),
+                keterangan: \`Status barang diubah menjadi \${kategori}\`
+            };
+        });
+
+        res.json(formattedTransactions);
+    } catch (error) {
+        console.error('Error in getTransactions:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const getTransactionById = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const transaction = await prisma.transaction.findUnique({
+            where: { id },
+            include: { user: { include: { profile: true } }, item: true }
+        });
+        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+        res.json(transaction);
+    } catch (error) {
+        console.error('Error in getTransactionById:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const createTransaction = async (req, res) => {
+    try {
+        const { id, tanggal, nomor, kategori, status, sn, merek, asal, tujuan, mitra, keterangan } = req.body;
+
+        if (!sn || !nomor || !kategori) {
+            return res.status(400).json({ message: 'SN, nomor, dan kategori wajib diisi' });
+        }
+
+        let item = await prisma.item.findUnique({ where: { serialNumber: sn }, include: { brand: true, category: true } });
+        if (!item) {
+            item = await prisma.item.findFirst({ include: { brand: true, category: true } });
+            if (!item) {
+                return res.status(404).json({ message: 'Item terkait tidak ditemukan di sistem' });
+            }
+        }
+
+        const userId = await getUserId(mitra, req.user);
+
+        let transactionType = "MASUK";
+        if (kategori === "Keluar") transactionType = "KELUAR";
+        if (kategori === "Rusak") transactionType = "RUSAK";
+        if (kategori === "Hilang") transactionType = "HILANG";
+
+        let createdAtDate = new Date();
+        if (tanggal) {
+            if (tanggal.length === 10) {
+                if (tanggal !== new Date().toISOString().slice(0, 10)) {
+                    const now = new Date();
+                    createdAtDate = new Date(\`\${tanggal}T\${now.toISOString().slice(11)}\`);
+                }
+            } else {
+                createdAtDate = new Date(tanggal);
+            }
+        }
+        
+        let originLocationId = null;
+        if (asal) {
+            let loc = await prisma.location.findFirst({ where: { name: asal } });
+            if (loc) originLocationId = loc.id;
+        }
+
+        let destinationLocationId = null;
+        if (tujuan) {
+            let loc = await prisma.location.findFirst({ where: { name: tujuan } });
+            if (loc) destinationLocationId = loc.id;
+        }
+
+        const newTransaction = await prisma.transaction.create({
+            data: {
+                id: id || undefined,
+                transactionType,
+                itemId: item.id,
+                userId,
+                serialNumber: sn,
+                brand: merek || item.brand?.nama || "Unknown",
+                category: item.category?.nama || "Unknown",
+                paNumber: nomor,
+                originLocationId,
+                destinationLocationId,
+                createdAt: createdAtDate
+            },
+            include: { user: { include: { profile: true } }, item: true }
+        });
+
+        res.status(201).json({ message: 'Transaction created successfully', transaction: newTransaction });
+    } catch (error) {
+        console.error('Error in createTransaction:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+export const deleteTransaction = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const transaction = await prisma.transaction.findUnique({ where: { id } });
+        if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
+
+        await prisma.transaction.delete({ where: { id } });
+        res.json({ message: 'Transaction deleted successfully' });
+    } catch (error) {
+        console.error('Error in deleteTransaction:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+`;
+
+fs.writeFileSync('src/controllers/location.controller.js', locationController);
+fs.writeFileSync('src/controllers/item.controller.js', itemController);
+fs.writeFileSync('src/controllers/transaction.controller.js', transactionController);

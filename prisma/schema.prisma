@@ -67,11 +67,10 @@ enum ReferenceType {
 
 /// Status lifecycle of an item request.
 enum RequestStatus {
-  DRAFT
+  DRAFT /// Draft request@
   MENUNGGU /// Waiting for approval
   DISETUJUI /// Approved by admin
-  DIPROSES /// Currently being processed
-  DIKIRIM /// Sent to destination
+  SIAP /// Ready to take
   DITERIMA /// Received by partner/requester
   SELESAI /// Request fully completed
   DITOLAK /// Rejected

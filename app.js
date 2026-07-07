@@ -10,7 +10,7 @@ import brandRoutes from './src/routes/brand.routes.js';
 import locationRoutes from './src/routes/location.routes.js';
 import itemRoutes from './src/routes/item.routes.js';
 import transactionRoutes from './src/routes/transaction.routes.js';
-
+import requestRoutes from './src/routes/request.routes.js';
 
 
 const app = express();
@@ -38,6 +38,7 @@ app.use("/brands", brandRoutes);
 app.use("/locations", locationRoutes);
 app.use("/items", itemRoutes);
 app.use("/transactions", transactionRoutes);
+app.use("/requests", requestRoutes);
 
 // Start the server
 app.listen(PORT, HOST, () => {
