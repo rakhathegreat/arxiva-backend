@@ -71,7 +71,7 @@ export const getLocations = async (req, res) => {
 // POST /locations
 export const createLocation = async (req, res) => {
     try {
-        const { name, type, capacity, brandRule, levels } = req.body;
+        const { name, type, capacity, brandRule, levels, parentId } = req.body;
 
         if (!name || !type) {
             return res.status(400).json({ message: 'Name and type are required' });
@@ -84,13 +84,14 @@ export const createLocation = async (req, res) => {
 
         const brandRuleId = await getBrandRuleId(brandRule);
 
-        if (type === "Kardus") {
+        if (type === "Kardus" || type === "BOX") {
             const newLocation = await prisma.location.create({
                 data: {
                     name,
                     type: "BOX",
                     isActive: true,
                     capacity: capacity || 0,
+                    parentId: parentId ? parseInt(parentId) : null,
                     brandRules: brandRuleId ? {
                         create: { brandId: brandRuleId }
                     } : undefined
@@ -127,23 +128,83 @@ export const createLocation = async (req, res) => {
 };
 
 export const updateLocation = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
+    try {
+        const id = parseInt(req.params.id);
+        const { name, capacity, brandRule } = req.body;
+
+        if (!name) {
+            return res.status(400).json({ message: 'Name is required' });
+        }
+
+        const existing = await prisma.location.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({ message: 'Location not found' });
+        }
+
+        const brandRuleId = await getBrandRuleId(brandRule);
+
+        // Update location basic fields
+        await prisma.location.update({
+            where: { id },
+            data: {
+                name,
+                capacity: capacity || existing.capacity
+            }
+        });
+
+        // Update brand rule if provided
+        if (brandRuleId) {
+            await prisma.brandLocationRule.deleteMany({ where: { locationId: id } });
+            await prisma.brandLocationRule.create({
+                data: { locationId: id, brandId: brandRuleId }
+            });
+        } else if (brandRule === "Campuran") {
+            await prisma.brandLocationRule.deleteMany({ where: { locationId: id } });
+        }
+
+        res.json({ message: 'Location updated successfully' });
+    } catch (error) {
+        console.error('Error in updateLocation:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
 };
-export const createLevel = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
-};
-export const updateLevel = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
-};
+
 export const toggleLocation = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
+    try {
+        const id = parseInt(req.params.id);
+        const { isActive } = req.body;
+
+        if (isActive === undefined) {
+            return res.status(400).json({ message: 'isActive flag is required' });
+        }
+
+        const updated = await prisma.location.update({
+            where: { id },
+            data: { isActive }
+        });
+
+        res.json({ message: 'Location status updated successfully', location: updated });
+    } catch (error) {
+        console.error('Error in toggleLocation:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
 };
-export const toggleLevel = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
-};
+
 export const deleteLocation = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
+    try {
+        const id = parseInt(req.params.id);
+
+        const existing = await prisma.location.findUnique({ where: { id } });
+        if (!existing) {
+            return res.status(404).json({ message: 'Location not found' });
+        }
+
+        await prisma.location.delete({ where: { id } });
+
+        res.json({ message: 'Location deleted successfully' });
+    } catch (error) {
+        console.error('Error in deleteLocation:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
 };
-export const deleteLevel = async (req, res) => {
-    res.status(501).json({ message: 'Not implemented for new schema yet' });
-};
+
