@@ -51,7 +51,7 @@ export const getLocations = async (req, res) => {
                 return {
                     id: loc.id,
                     name: loc.name,
-                    type: "Kardus",
+                    type: loc.type,
                     isActive: loc.isActive,
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
