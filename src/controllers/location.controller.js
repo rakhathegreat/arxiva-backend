@@ -47,10 +47,21 @@ export const getLocations = async (req, res) => {
                         sheetUrl: null
                     }))
                 };
+            } else if (loc.type === "PALLET") {
+                return {
+                    id: loc.id,
+                    name: "Pallet",
+                    type: loc.type,
+                    isActive: loc.isActive,
+                    capacity: loc.capacity,
+                    usedCapacity: loc.items ? loc.items.length : 0,
+                    brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
+                    sheetUrl: null
+                };
             } else {
                 return {
                     id: loc.id,
-                    name: loc.name,
+                    name: "Kardus",
                     type: loc.type,
                     isActive: loc.isActive,
                     capacity: loc.capacity,
