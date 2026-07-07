@@ -50,8 +50,8 @@ export const getLocations = async (req, res) => {
             } else if (loc.type === "PALLET") {
                 return {
                     id: loc.id,
-                    name: "Pallet",
-                    type: loc.type,
+                    name: loc.name,
+                    type: "Pallet",
                     isActive: loc.isActive,
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
@@ -61,8 +61,8 @@ export const getLocations = async (req, res) => {
             } else {
                 return {
                     id: loc.id,
-                    name: "Kardus",
-                    type: loc.type,
+                    name: loc.name,
+                    type: "Kardus",
                     isActive: loc.isActive,
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
