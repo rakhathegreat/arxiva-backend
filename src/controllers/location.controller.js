@@ -84,11 +84,11 @@ export const createLocation = async (req, res) => {
 
         const brandRuleId = await getBrandRuleId(brandRule);
 
-        if (type === "Kardus" || type === "BOX") {
+        if (type === "Pallet" || type === "PALLET") {
             const newLocation = await prisma.location.create({
                 data: {
                     name,
-                    type: "BOX",
+                    type: "PALLET",
                     isActive: true,
                     capacity: capacity || 0,
                     parentId: parentId ? parseInt(parentId) : null,
@@ -98,7 +98,7 @@ export const createLocation = async (req, res) => {
                 }
             });
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
-        } else {
+        } else if (type === "Rak" || type === "RACK") {
             const newLocation = await prisma.location.create({
                 data: {
                     name,
@@ -118,6 +118,20 @@ export const createLocation = async (req, res) => {
                     }
                 },
                 include: { children: true }
+            });
+            return res.status(201).json({ message: 'Location created successfully', location: newLocation });
+        } else {
+            const newLocation = await prisma.location.create({
+                data: {
+                    name,
+                    type: "BOX",
+                    isActive: true,
+                    capacity: capacity || 0,
+                    parentId: parentId ? parseInt(parentId) : null,
+                    brandRules: brandRuleId ? {
+                        create: { brandId: brandRuleId }
+                    } : undefined
+                }
             });
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         }
