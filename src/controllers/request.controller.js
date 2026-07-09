@@ -15,12 +15,13 @@ export const getRequests = async (req, res) => {
             },
             orderBy: { createdAt: 'desc' }
         });
-        
+
         // Format for frontend
         const formatted = requests.map(r => ({
             id: r.id,
             requestNumber: r.requestNumber,
             requesterName: r.requester?.profile?.nama || r.requester?.username || "Unknown",
+            partnerCategory: r.requester?.profile?.partnerType,
             status: r.status,
             notes: r.notes || "-",
             requestedAt: r.requestedAt,
@@ -64,7 +65,7 @@ export const getRequestById = async (req, res) => {
 export const createRequest = async (req, res) => {
     try {
         const { requesterId, notes, items } = req.body;
-        
+
         const requestCount = await prisma.request.count();
         const requestNumber = `REQ-${new Date().getFullYear()}-${String(requestCount + 1).padStart(4, '0')}`;
 
@@ -98,7 +99,7 @@ export const updateRequestStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status } = req.body;
-        
+
         const validStatuses = ['DRAFT', 'MENUNGGU', 'DISETUJUI', 'DIPROSES', 'DIKIRIM', 'DITERIMA', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({ message: 'Invalid status' });
