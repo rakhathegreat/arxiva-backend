@@ -1,5 +1,65 @@
 import prisma from '../utils/prisma.js';
 
+async function safeGetOrCreateLocation(name, createData) {
+    let loc = await prisma.location.findUnique({ where: { name } });
+    if (!loc) {
+        try {
+            loc = await prisma.location.create({ data: { name, ...createData } });
+        } catch (error) {
+            if (error.code === 'P2002') {
+                loc = await prisma.location.findUnique({ where: { name } });
+            } else {
+                throw error;
+            }
+        }
+    }
+    return loc;
+}
+
+async function safeGetOrCreateBrand(nama) {
+    let brand = await prisma.brand.findFirst({ where: { nama } });
+    if (!brand) {
+        try {
+            brand = await prisma.brand.create({
+                data: {
+                    nama,
+                    origin: "Global",
+                    identifier: nama.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
+                }
+            });
+        } catch (error) {
+            if (error.code === 'P2002') {
+                brand = await prisma.brand.findFirst({ where: { nama } });
+            } else {
+                throw error;
+            }
+        }
+    }
+    return brand;
+}
+
+async function safeGetOrCreateMaterialModel(nama, materialCategoryId, brandId) {
+    let model = await prisma.materialModel.findFirst({
+        where: { nama, materialCategoryId, brandId }
+    });
+    if (!model) {
+        try {
+            model = await prisma.materialModel.create({
+                data: { nama, materialCategoryId, brandId }
+            });
+        } catch (error) {
+            if (error.code === 'P2002') {
+                model = await prisma.materialModel.findFirst({
+                    where: { nama }
+                });
+            } else {
+                throw error;
+            }
+        }
+    }
+    return model;
+}
+
 async function getLocationId(lokasiPenyimpanan) {
     if (!lokasiPenyimpanan || lokasiPenyimpanan === "Diluar") {
         let loc = await prisma.location.findUnique({ where: { name: "Diluar" } });
@@ -7,34 +67,22 @@ async function getLocationId(lokasiPenyimpanan) {
             loc = await prisma.location.findUnique({ where: { name: "Keluar" } });
         }
         if (!loc) {
-            loc = await prisma.location.create({
-                data: { name: "Diluar", type: "BOX", isActive: true }
-            });
+            loc = await safeGetOrCreateLocation("Diluar", { type: "BOX", isActive: true });
         }
         return loc.id;
     }
 
     if (lokasiPenyimpanan.includes(" - ")) {
         const [locName, lvlName] = lokasiPenyimpanan.split(" - ");
-        let loc = await prisma.location.findUnique({ where: { name: locName } });
-        if (!loc) {
-            loc = await prisma.location.create({
-                data: { name: locName, type: "RACK", isActive: true }
-            });
-        }
+        let loc = await safeGetOrCreateLocation(locName, { type: "RACK", isActive: true });
         let child = await prisma.location.findFirst({ where: { parentId: loc.id, name: lvlName } });
         if (!child) {
-            child = await prisma.location.create({ data: { name: lvlName, parentId: loc.id, type: "BOX", capacity: 50, isActive: true } });
+            child = await safeGetOrCreateLocation(lvlName, { parentId: loc.id, type: "BOX", capacity: 50, isActive: true });
         }
         return child.id;
     }
 
-    let loc = await prisma.location.findUnique({ where: { name: lokasiPenyimpanan } });
-    if (!loc) {
-        loc = await prisma.location.create({
-            data: { name: lokasiPenyimpanan, type: "BOX", isActive: true, capacity: 50 }
-        });
-    }
+    let loc = await safeGetOrCreateLocation(lokasiPenyimpanan, { type: "BOX", isActive: true, capacity: 50 });
     return loc.id;
 }
 
@@ -156,30 +204,10 @@ export const createItem = async (req, res) => {
             category = await prisma.materialCategory.create({ data: { nama: kategori, typeId: defaultType.id, safetyStock: 5 } });
         }
 
-        let brand = await prisma.brand.findFirst({ where: { nama: merek } });
-        if (!brand) {
-            brand = await prisma.brand.create({
-                data: {
-                    nama: merek,
-                    origin: "Global",
-                    identifier: merek.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
-                }
-            });
-        }
+        const brand = await safeGetOrCreateBrand(merek);
 
         const modelName = tipe || "Default";
-        let model = await prisma.materialModel.findFirst({
-            where: { nama: modelName, materialCategoryId: category.id, brandId: brand.id }
-        });
-        if (!model) {
-            model = await prisma.materialModel.create({
-                data: {
-                    nama: modelName,
-                    materialCategoryId: category.id,
-                    brandId: brand.id
-                }
-            });
-        }
+        const model = await safeGetOrCreateMaterialModel(modelName, category.id, brand.id);
 
         const locationId = await getLocationId(lokasiPenyimpanan);
         const createdById = await getUserId(mitra, req.user);
@@ -249,29 +277,9 @@ export const updateItem = async (req, res) => {
                 category = await prisma.materialCategory.create({ data: { nama: categoryName, typeId: defaultType.id, safetyStock: 5 } });
             }
 
-            let brand = await prisma.brand.findFirst({ where: { nama: brandName } });
-            if (!brand) {
-                brand = await prisma.brand.create({
-                    data: {
-                        nama: brandName,
-                        origin: "Global",
-                        identifier: brandName.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
-                    }
-                });
-            }
+            const brand = await safeGetOrCreateBrand(brandName);
 
-            let model = await prisma.materialModel.findFirst({
-                where: { nama: modelName, materialCategoryId: category.id, brandId: brand.id }
-            });
-            if (!model) {
-                model = await prisma.materialModel.create({
-                    data: {
-                        nama: modelName,
-                        materialCategoryId: category.id,
-                        brandId: brand.id
-                    }
-                });
-            }
+            const model = await safeGetOrCreateMaterialModel(modelName, category.id, brand.id);
             modelId = model.id;
         }
 
