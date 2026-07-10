@@ -1,7 +1,11 @@
 import express from 'express';
-import { getRequests, getRequestById, createRequest, updateRequestStatus } from '../controllers/request.controller.js';
+import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast } from '../controllers/request.controller.js';
+import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
+
+// Terapkan auth middleware ke seluruh endpoint request
+router.use(authMiddleware);
 
 /**
  * @swagger
@@ -112,5 +116,25 @@ router.post('/', createRequest);
  *         description: Internal server error
  */
 router.put('/:id/status', updateRequestStatus);
+
+/**
+ * @swagger
+ * /requests/{id}/allocate:
+ *   post:
+ *     tags: [Requests]
+ *     summary: Allocate items to a request
+ *     description: Allocate specific hardware units to a request (Admin only)
+ */
+router.post('/:id/allocate', roleMiddleware(['ADMIN']), allocateItems);
+
+/**
+ * @swagger
+ * /requests/{id}/bast:
+ *   get:
+ *     tags: [Requests]
+ *     summary: Download BAST document
+ *     description: Securely download BAST document (Admin or Requester)
+ */
+router.get('/:id/bast', downloadBast);
 
 export default router;

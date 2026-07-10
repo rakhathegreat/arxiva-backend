@@ -18,7 +18,7 @@ async function getUserId(mitra, reqUser) {
 
 export const getTransactions = async (req, res) => {
     try {
-        const transactions = await prisma.transaction.findMany({
+        const transactions = await prisma.itemMutation.findMany({
             include: {
                 user: { include: { profile: true } },
                 item: true,
@@ -32,9 +32,9 @@ export const getTransactions = async (req, res) => {
             let actualDate = t.createdAt;
 
             let kategori = "Masuk";
-            if (t.transactionType === "KELUAR") kategori = "Keluar";
-            if (t.transactionType === "RUSAK") kategori = "Rusak";
-            if (t.transactionType === "HILANG") kategori = "Hilang";
+            if (t.type === "KELUAR") kategori = "Keluar";
+            if (t.type === "RUSAK") kategori = "Rusak";
+            if (t.type === "HILANG") kategori = "Hilang";
 
             const tanggalStr = actualDate.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
             const waktuStr = actualDate.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
@@ -45,7 +45,7 @@ export const getTransactions = async (req, res) => {
                 tanggalDisplay: tanggalStr,
                 waktu: waktuStr,
                 createdAt: actualDate.toISOString(),
-                nomor: t.transactionNumber || "-",
+                nomor: t.mutationNumber || "-",
                 kategori,
                 status: "Selesai",
                 sn: t.serialNumber,
@@ -67,7 +67,7 @@ export const getTransactions = async (req, res) => {
 export const getTransactionById = async (req, res) => {
     try {
         const { id } = req.params;
-        const transaction = await prisma.transaction.findUnique({
+        const transaction = await prisma.itemMutation.findUnique({
             where: { id },
             include: { user: { include: { profile: true } }, item: true }
         });
@@ -97,10 +97,10 @@ export const createTransaction = async (req, res) => {
 
         const userId = await getUserId(mitra, req.user);
 
-        let transactionType = "MASUK";
-        if (kategori === "Keluar") transactionType = "KELUAR";
-        if (kategori === "Rusak") transactionType = "RUSAK";
-        if (kategori === "Hilang") transactionType = "HILANG";
+        let type = "MASUK";
+        if (kategori === "Keluar") type = "KELUAR";
+        if (kategori === "Rusak") type = "RUSAK";
+        if (kategori === "Hilang") type = "HILANG";
 
         let createdAtDate = new Date();
         if (tanggal) {
@@ -126,10 +126,17 @@ export const createTransaction = async (req, res) => {
             if (loc) destinationLocationId = loc.id;
         }
 
-        const newTransaction = await prisma.transaction.create({
+        // Generate mutationNumber
+        const date = new Date();
+        const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+        const mutationNumber = `MUT-${yearMonth}-${randomSuffix}`;
+
+        const newTransaction = await prisma.itemMutation.create({
             data: {
                 id: id || undefined,
-                transactionType,
+                mutationNumber,
+                type,
                 itemId: item.id,
                 userId,
                 serialNumber: sn,
@@ -153,10 +160,10 @@ export const createTransaction = async (req, res) => {
 export const deleteTransaction = async (req, res) => {
     try {
         const { id } = req.params;
-        const transaction = await prisma.transaction.findUnique({ where: { id } });
+        const transaction = await prisma.itemMutation.findUnique({ where: { id } });
         if (!transaction) return res.status(404).json({ message: 'Transaction not found' });
 
-        await prisma.transaction.delete({ where: { id } });
+        await prisma.itemMutation.delete({ where: { id } });
         res.json({ message: 'Transaction deleted successfully' });
     } catch (error) {
         console.error('Error in deleteTransaction:', error);

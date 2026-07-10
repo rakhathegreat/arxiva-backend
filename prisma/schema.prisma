@@ -41,7 +41,7 @@
   }
 
   /// Category for transaction logs to track the movement or status change of an item.
-  enum TransactionCategory {
+  enum MutationType {
     MASUK /// Item entering inventory
     KELUAR /// Item leaving inventory
     RUSAK /// Item marked as damaged
@@ -60,7 +60,7 @@
   /// Type of entity referenced by a notification.
   enum ReferenceType {
     ITEM
-    TRANSACTION
+    ITEM_MUTATION
     LOCATION
     USER
   }
@@ -96,7 +96,7 @@
     profile UserProfile?
 
     items         Item[]
-    transactions  Transaction[]
+    itemMutations ItemMutation[]
     notifications Notification[]
     locations     UserLocation[]
 
@@ -208,7 +208,7 @@
     entryDate DateTime /// Date item was received into inventory
     exitDate  DateTime? /// Date item left inventory or was deployed
 
-    transactions Transaction[]
+    mutations ItemMutation[]
 
     requestAllocations RequestAllocation[]
 
@@ -224,11 +224,11 @@
   }
 
   /// Audit log for item movements and status changes.
-  model Transaction {
+  model ItemMutation {
     id String @id @default(uuid())
 
-    transactionNumber String?             @unique
-    transactionType   TransactionCategory
+    mutationNumber String?      @unique
+    type           MutationType
 
     itemId String
     item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
@@ -247,11 +247,15 @@
     originLocation      Location? @relation("OriginLocation", fields: [originLocationId], references: [id])
     destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
 
+    requestId String?
+    request   Request? @relation(fields: [requestId], references: [id])
+
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
 
     @@index([userId])
     @@index([createdAt])
+    @@index([requestId])
   }
 
   /// Physical or logical storage location (hierarchical).
@@ -273,9 +277,9 @@
 
     brandRules BrandLocationRule[]
 
-    originTransactions Transaction[] @relation("OriginLocation")
+    originMutations ItemMutation[] @relation("OriginLocation")
 
-    destinationTransactions Transaction[] @relation("DestinationLocation")
+    destinationMutations ItemMutation[] @relation("DestinationLocation")
 
     createdAt DateTime @default(now())
     updatedAt DateTime @updatedAt
@@ -341,6 +345,7 @@
     completedAt DateTime?
 
     requestItems RequestItem[]
+    itemMutations ItemMutation[]
 
     createdAt        DateTime          @default(now())
     updatedAt        DateTime          @updatedAt
@@ -392,7 +397,7 @@
 
     createdAt DateTime @default(now())
 
-    @@unique([requestItemId, itemId])
+    @@unique([itemId])
   }
 
   /// Official generated document (e.g., Berita Acara Serah Terima) for a request.

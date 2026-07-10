@@ -7,9 +7,10 @@ async function main() {
     console.log('--- Mulai proses seeding database ---');
 
     // 1. Bersihkan database lama secara berurutan untuk menghindari error foreign key
-    await prisma.transaction.deleteMany();
+    await prisma.itemMutation.deleteMany();
     await prisma.requestAllocation.deleteMany();
     await prisma.requestItem.deleteMany();
+    await prisma.deliveryDocument.deleteMany();
     await prisma.request.deleteMany();
     await prisma.item.deleteMany();
     await prisma.brandLocationRule.deleteMany();
@@ -49,11 +50,22 @@ async function main() {
 
     // Mitra-mitra
     const partnersData = [
-        { username: 'pt_naratas', nama: 'PT Naratas', email: 'contact@naratas.com' },
-        { username: 'pt_tzu', nama: 'PT TZU', email: 'contact@tzu.com' },
-        { username: 'mitra_demo', nama: 'Mitra Alpha', email: 'alpha@mitra.com' },
-        { username: 'pt_beta', nama: 'PT Beta', email: 'contact@beta.com' },
+        { username: 'pt_naratas', nama: 'PT Naratas', email: 'contact@naratas.com', partnerType: 'Mitra' },
+        { username: 'pt_tzu', nama: 'PT TZU', email: 'contact@tzu.com', partnerType: 'Mitra' },
+        { username: 'mitra_demo', nama: 'Mitra Alpha', email: 'alpha@mitra.com', partnerType: 'Mitra' },
+        { username: 'pt_beta', nama: 'PT Beta', email: 'contact@beta.com', partnerType: 'Mitra' },
+        { username: 'pt_telkom_akses', nama: 'PT Telkom Akses', email: 'info@telkomakses.co.id', partnerType: 'Mitra' },
+        { username: 'pt_stp', nama: 'PT Solusi Tunas Pratama', email: 'contact@stp.co.id', partnerType: 'Mitra' },
+        { username: 'pt_fmi', nama: 'PT Fiber Media Indonesia', email: 'info@fibermedia.co.id', partnerType: 'Mitra' },
+        { username: 'pt_ibs', nama: 'PT Inti Bangun Sejahtera', email: 'support@ibstower.com', partnerType: 'Mitra' },
+        { username: 'pt_lintasarta', nama: 'PT Lintasarta', email: 'helpdesk@lintasarta.co.id', partnerType: 'Mitra' },
+        { username: 'pt_moratelindo', nama: 'PT Moratelindo', email: 'noc@moratelindo.co.id', partnerType: 'Mitra' },
+        { username: 'pt_tower_bersama', nama: 'PT Tower Bersama', email: 'info@tbg.co.id', partnerType: 'Mitra' },
+        { username: 'pt_linknet', nama: 'PT Link Net', email: 'corp.secretary@linknet.co.id', partnerType: 'Mitra' },
+        { username: 'pt_cmi', nama: 'PT Centratama Menara Indonesia', email: 'info@centratamagroup.com', partnerType: 'Mitra' },
+        { username: 'pt_xl_axiata', nama: 'PT XL Axiata', email: 'customercare@xl.co.id', partnerType: 'Mitra' }
     ];
+
 
     const mappedPartners = {};
     for (const partner of partnersData) {
@@ -68,6 +80,7 @@ async function main() {
                         email: partner.email,
                         telepon: '081122334455',
                         alamat: 'Jl. Industri No. 5',
+                        partnerType: partner.partnerType,
                     }
                 }
             }
@@ -78,64 +91,80 @@ async function main() {
     console.log('✅ User & Profile Mitra berhasil dibuat');
 
     // 4. Buat Kategori
-    const catLaptop = await prisma.category.create({ data: { nama: 'Laptop', deskripsi: 'Komputer Jinjing', safetyStock: 8 } });
-    const catMonitor = await prisma.category.create({ data: { nama: 'Monitor', deskripsi: 'Layar LCD/LED', safetyStock: 5 } });
-    const catRouter = await prisma.category.create({ data: { nama: 'Router', deskripsi: 'Perangkat Network', safetyStock: 3 } });
-    const catPrinter = await prisma.category.create({ data: { nama: 'Printer', deskripsi: 'Pencetak Dokumen', safetyStock: 4 } });
+    const catONT = await prisma.category.create({ data: { nama: 'GPON, ONT EG8021V5,2.4/5GHz Wi-Fi', deskripsi: 'Optical Network Terminal', safetyStock: 50 } });
+    const catKabel = await prisma.category.create({ data: { nama: 'FOC, DropWire3SlgSC-UPC,1F,100m', deskripsi: 'Fiber Optic Cable', safetyStock: 100 } });
     console.log('✅ Kategori Aset berhasil dibuat');
 
     // 5. Buat Brand
-    const bLenovo = await prisma.brand.create({ data: { nama: 'Lenovo', origin: 'China', identifier: 'LNV', categoryId: catLaptop.id } });
-    const bAsus = await prisma.brand.create({ data: { nama: 'ASUS', origin: 'Taiwan', identifier: 'ASU', categoryId: catLaptop.id } });
-    const bDell = await prisma.brand.create({ data: { nama: 'Dell', origin: 'USA', identifier: 'DLL', categoryId: catMonitor.id } });
-    const bLg = await prisma.brand.create({ data: { nama: 'LG', origin: 'South Korea', identifier: 'LGE', categoryId: catMonitor.id } });
-    const bCisco = await prisma.brand.create({ data: { nama: 'Cisco', origin: 'USA', identifier: 'CSO', categoryId: catRouter.id } });
-    const bHp = await prisma.brand.create({ data: { nama: 'HP', origin: 'USA', identifier: 'HPP', categoryId: catPrinter.id } });
+    const bHuawei = await prisma.brand.create({ data: { nama: 'HUAWEI', origin: 'China', identifier: 'HWA', categoryId: catONT.id } });
+    const bFiberhome = await prisma.brand.create({ data: { nama: 'FIBERHOME', origin: 'China', identifier: 'FBH', categoryId: catKabel.id } });
     console.log('✅ Brand Aset berhasil dibuat');
 
     // 6. Buat Lokasi
-    const locGudang = await prisma.location.create({ data: { name: 'Gudang Utama', type: 'BRANCH', capacity: 100 } });
-    const locRak1 = await prisma.location.create({ data: { name: 'Rak A - Baris 1', type: 'BOX', parentId: locGudang.id, capacity: 20 } });
-    const locRak2 = await prisma.location.create({ data: { name: 'Rak A - Baris 2', type: 'BOX', parentId: locGudang.id, capacity: 20 } });
-    const locDiluar = await prisma.location.create({ data: { name: 'Diluar', type: 'PARTNER', capacity: 500 } });
-    console.log('✅ Lokasi Penyimpanan berhasil dibuat');
+    const locGudang = await prisma.location.create({ data: { name: 'Gudang Utama', type: 'BRANCH', capacity: 1000 } });
+    const locRak1 = await prisma.location.create({ data: { name: 'Rak A - Baris 1', type: 'BOX', parentId: locGudang.id, capacity: 500 } });
+    const locRak2 = await prisma.location.create({ data: { name: 'Rak A - Baris 2', type: 'BOX', parentId: locGudang.id, capacity: 500 } });
+    
+    // Lokasi Mitra disinkronkan dengan entitas User Profile
+    const partnerLocations = {};
+    for (const partner of partnersData) {
+        partnerLocations[partner.nama] = await prisma.location.create({ 
+            data: { name: partner.nama, type: 'PARTNER', capacity: 500 } 
+        });
+    }
+    const locNaratas = partnerLocations['PT Naratas'];
+    console.log(`✅ ${partnersData.length} Lokasi Penyimpanan Mitra berhasil dibuat`);
 
     // 7. Buat Items/Aset
-    const itemDistribution = [
-        { ownerId: adminUser.id, count: 18, status: 'tersedia', locId: locRak1.id }, // KP Tasikmalaya (Tersedia)
-        { ownerId: mappedPartners['PT Naratas'], count: 12, status: 'digunakan', locId: locDiluar.id }, // PT Naratas (Diluar)
-        { ownerId: mappedPartners['PT TZU'], count: 8, status: 'digunakan', locId: locDiluar.id }, // PT TZU (Diluar)
-        { ownerId: mappedPartners['Mitra Alpha'], count: 6, status: 'digunakan', locId: locDiluar.id }, // Mitra Alpha (Diluar)
-        { ownerId: mappedPartners['PT Beta'], count: 4, status: 'digunakan', locId: locDiluar.id }, // PT Beta (Diluar)
-        { ownerId: adminUser.id, count: 3, status: 'rusak', locId: locRak2.id }, // Rusak (di Gudang)
-        { ownerId: mappedPartners['PT Naratas'], count: 2, status: 'hilang', locId: locDiluar.id }, // Hilang
-    ];
+    // SN Generator: 16 Hex characters
+    const generateHexSN = () => [...Array(16)].map(() => Math.floor(Math.random() * 16).toString(16)).join('').toUpperCase();
 
-    const brands = [bLenovo, bAsus, bDell, bLg, bCisco, bHp];
     const createdItems = [];
-    let snCounter = 1000;
+    let paCounter = 1000;
 
-    for (const dist of itemDistribution) {
-        for (let i = 0; i < dist.count; i++) {
-            const randomBrand = brands[Math.floor(Math.random() * brands.length)];
-            const sn = `SN-${randomBrand.identifier}-${snCounter++}`;
+    const createItems = async (count, category, brand, loc, status, ownerId) => {
+        const items = [];
+        for (let i = 0; i < count; i++) {
             const item = await prisma.item.create({
                 data: {
-                    serialNumber: sn,
-                    categoryId: randomBrand.categoryId,
-                    brandId: randomBrand.id,
-                    status: dist.status,
-                    locationId: dist.locId,
-                    entryDate: new Date(Date.now() - Math.floor(Math.random() * 40 + 10) * 24 * 60 * 60 * 1000), // Masuk 10-50 hari lalu
-                    createdById: dist.ownerId,
-                    paNumber: `PA-ARX-${snCounter}`
+                    serialNumber: generateHexSN(),
+                    categoryId: category.id,
+                    brandId: brand.id,
+                    status: status,
+                    locationId: loc.id,
+                    entryDate: new Date(Date.now() - Math.floor(Math.random() * 40 + 10) * 24 * 60 * 60 * 1000),
+                    createdById: ownerId,
+                    paNumber: `PA-ARX-${paCounter++}`
                 },
                 include: { category: true, brand: true }
             });
+            items.push(item);
             createdItems.push(item);
         }
+        return items;
+    };
+
+    const gudangONTs = await createItems(100, catONT, bHuawei, locRak1, 'tersedia', adminUser.id);
+    const gudangKabels = await createItems(50, catKabel, bFiberhome, locRak2, 'tersedia', adminUser.id);
+    const naratasONTs = await createItems(50, catONT, bHuawei, locNaratas, 'digunakan', mappedPartners['PT Naratas']);
+    
+    // Distribusi barang ke semua Mitra (sebagian tersedia, sebagian digunakan/terpakai)
+    for (const partner of partnersData) {
+        const loc = partnerLocations[partner.nama];
+        const userId = mappedPartners[partner.nama];
+        
+        // Beri acak 5 - 15 ONT dengan status 'digunakan'
+        await createItems(Math.floor(Math.random() * 11) + 5, catONT, bHuawei, loc, 'digunakan', userId);
+        // Beri acak 3 - 10 ONT dengan status 'tersedia'
+        await createItems(Math.floor(Math.random() * 8) + 3, catONT, bHuawei, loc, 'tersedia', userId);
+        
+        // Beri acak 5 - 15 Kabel dengan status 'digunakan'
+        await createItems(Math.floor(Math.random() * 11) + 5, catKabel, bFiberhome, loc, 'digunakan', userId);
+        // Beri acak 3 - 10 Kabel dengan status 'tersedia'
+        await createItems(Math.floor(Math.random() * 8) + 3, catKabel, bFiberhome, loc, 'tersedia', userId);
     }
-    console.log(`✅ ${createdItems.length} Item Aset berhasil dibuat`);
+
+    console.log(`✅ ${createdItems.length} Item Aset berhasil dibuat dan didistribusikan`);
 
     // 8. Buat Transaksi Historis (Untuk Line Area Chart 30 Hari Terakhir)
     let txCounter = 1;
@@ -144,18 +173,17 @@ async function main() {
         const txDate = new Date();
         txDate.setDate(now.getDate() - day);
 
-        // Tambah fluktuasi transaksi per hari (0 sampai 3 transaksi)
-        const txCount = Math.floor(Math.random() * 4);
+        const txCount = Math.floor(Math.random() * 6) + 1;
         for (let i = 0; i < txCount; i++) {
             const randomItem = createdItems[Math.floor(Math.random() * createdItems.length)];
             const txType = Math.random() > 0.4 ? 'MASUK' : 'KELUAR';
 
-            await prisma.transaction.create({
+            await prisma.itemMutation.create({
                 data: {
-                    transactionNumber: `TX-${txDate.getFullYear()}${(txDate.getMonth() + 1).toString().padStart(2, '0')}-${txCounter++}`,
-                    transactionType: txType,
+                    mutationNumber: `MUT-${txDate.getFullYear()}${(txDate.getMonth() + 1).toString().padStart(2, '0')}-${txCounter++}`,
+                    type: txType,
                     itemId: randomItem.id,
-                    userId: randomItem.createdById, // User pemilik aset
+                    userId: randomItem.createdById,
                     serialNumber: randomItem.serialNumber,
                     brand: randomItem.brand.nama,
                     category: randomItem.category.nama,
@@ -167,38 +195,140 @@ async function main() {
     }
     console.log('✅ Transaksi Historis (30 hari terakhir) berhasil dibuat');
 
-    // 9. Buat Request Permintaan (10 Request Terbaru)
-    const requestStatuses = ['MENUNGGU', 'DISETUJUI', 'SIAP', 'SELESAI', 'DITOLAK'];
-    const requestPartners = [
-        mappedPartners['PT Naratas'],
-        mappedPartners['PT TZU'],
-        mappedPartners['Mitra Alpha'],
-        mappedPartners['PT Beta']
-    ];
+    // 9. Buat Skenario Request & Lifecycle
+    
+    // Scenario 1: SELESAI (PT Naratas) - 50 ONT Huawei
+    const req1Date = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
+    const req1 = await prisma.request.create({
+        data: {
+            requestNumber: `REQ-${req1Date.getFullYear()}-0001`,
+            requesterId: mappedPartners['PT Naratas'],
+            status: 'SELESAI',
+            notes: 'Permintaan ONT untuk project perumahan subsidi',
+            requestedAt: req1Date,
+            processedAt: new Date(req1Date.getTime() + 24 * 60 * 60 * 1000),
+            completedAt: new Date(req1Date.getTime() + 3 * 24 * 60 * 60 * 1000),
+            requestItems: {
+                create: [
+                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 50 }
+                ]
+            }
+        },
+        include: { requestItems: true }
+    });
+    
+    for (const item of naratasONTs) {
+        await prisma.requestAllocation.create({
+            data: {
+                requestItemId: req1.requestItems[0].id,
+                itemId: item.id,
+                allocatedById: adminUser.id
+            }
+        });
+    }
+    await prisma.deliveryDocument.create({
+        data: {
+            documentNumber: `BAST/REQ/${req1.requestNumber}`,
+            requestId: req1.id,
+            generatedById: adminUser.id,
+            filePath: `/storage/bast/${req1.requestNumber}.pdf`,
+            createdAt: new Date(req1Date.getTime() + 3 * 24 * 60 * 60 * 1000)
+        }
+    });
 
-    for (let i = 1; i <= 10; i++) {
-        const requesterId = requestPartners[Math.floor(Math.random() * requestPartners.length)];
-        const status = requestStatuses[Math.floor(Math.random() * requestStatuses.length)];
-        const reqDate = new Date();
-        reqDate.setDate(now.getDate() - Math.floor(Math.random() * 7)); // Dalam 7 hari terakhir
+    // Scenario 2: SIAP (PT TZU) - 20 Kabel Fiberhome
+    const req2Date = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
+    const req2 = await prisma.request.create({
+        data: {
+            requestNumber: `REQ-${req2Date.getFullYear()}-0002`,
+            requesterId: mappedPartners['PT TZU'],
+            status: 'SIAP',
+            notes: 'Permintaan Kabel FOC untuk backbone area timur',
+            requestedAt: req2Date,
+            processedAt: new Date(req2Date.getTime() + 5 * 60 * 60 * 1000),
+            requestItems: {
+                create: [
+                    { categoryId: catKabel.id, brandId: bFiberhome.id, quantity: 20 }
+                ]
+            }
+        },
+        include: { requestItems: true }
+    });
 
+    for (let i = 0; i < 20; i++) {
+        await prisma.requestAllocation.create({
+            data: {
+                requestItemId: req2.requestItems[0].id,
+                itemId: gudangKabels[i].id,
+                allocatedById: adminUser.id
+            }
+        });
+    }
+
+    // Scenario 3: MENUNGGU (Mitra Alpha)
+    const req3Date = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+    await prisma.request.create({
+        data: {
+            requestNumber: `REQ-${req3Date.getFullYear()}-0003`,
+            requesterId: mappedPartners['Mitra Alpha'],
+            status: 'MENUNGGU',
+            notes: 'Permintaan restock reguler bulanan',
+            requestedAt: req3Date,
+            requestItems: {
+                create: [
+                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 30 },
+                    { categoryId: catKabel.id, brandId: bFiberhome.id, quantity: 15 }
+                ]
+            }
+        }
+    });
+
+    // Scenario 4: DITOLAK (PT Beta)
+    const req4Date = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000);
+    await prisma.request.create({
+        data: {
+            requestNumber: `REQ-${req4Date.getFullYear()}-0004`,
+            requesterId: mappedPartners['PT Beta'],
+            status: 'DITOLAK',
+            notes: 'Stok gudang tidak mencukupi untuk permintaan ini',
+            requestedAt: req4Date,
+            processedAt: new Date(req4Date.getTime() + 12 * 60 * 60 * 1000),
+            requestItems: {
+                create: [
+                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 100 }
+                ]
+            }
+        }
+    });
+
+    // Tambahan 50 dummy request acak
+    const statuses = ['DRAFT', 'MENUNGGU', 'DISETUJUI', 'SIAP', 'DITERIMA', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
+    const notesArr = ['Restock bulanan', 'Proyek baru', 'Ganti perangkat rusak', 'Ekspansi jaringan', 'Kebutuhan mendesak', 'Permintaan rutin', '', 'Permintaan cadangan'];
+    const partnerKeys = Object.keys(mappedPartners);
+    
+    for(let i = 5; i <= 55; i++) {
+        const randStatus = statuses[Math.floor(Math.random() * statuses.length)];
+        const randPartner = partnerKeys[Math.floor(Math.random() * partnerKeys.length)];
+        const reqDate = new Date(now.getTime() - Math.floor(Math.random() * 60) * 24 * 60 * 60 * 1000);
+        
         await prisma.request.create({
             data: {
                 requestNumber: `REQ-${reqDate.getFullYear()}-${i.toString().padStart(4, '0')}`,
-                requesterId: requesterId,
-                status: status,
-                notes: `Permintaan pengadaan unit untuk mendukung operasional fase ${i}`,
+                requesterId: mappedPartners[randPartner],
+                status: randStatus,
+                notes: notesArr[Math.floor(Math.random() * notesArr.length)],
                 requestedAt: reqDate,
                 requestItems: {
                     create: [
-                        { categoryId: catLaptop.id, brandId: bLenovo.id, quantity: Math.floor(Math.random() * 3) + 1 },
-                        { categoryId: catMonitor.id, brandId: bDell.id, quantity: Math.floor(Math.random() * 2) + 1 }
+                        { categoryId: catONT.id, brandId: bHuawei.id, quantity: Math.floor(Math.random() * 50) + 1 },
+                        ...(Math.random() > 0.5 ? [{ categoryId: catKabel.id, brandId: bFiberhome.id, quantity: Math.floor(Math.random() * 20) + 1 }] : [])
                     ]
                 }
             }
         });
     }
-    console.log('✅ 10 Data Request Terbaru berhasil dibuat');
+
+    console.log('✅ Skenario Request (SELESAI, SIAP, MENUNGGU, DITOLAK) + 50 Data Acak berhasil dibuat');
     console.log('--- Proses seeding database selesai! ---');
 }
 
