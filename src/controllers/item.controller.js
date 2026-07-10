@@ -1,5 +1,4 @@
 import prisma from '../utils/prisma.js';
-import { createSheetForLevel, syncLevelSheet } from '../services/sheet.service.js';
 
 async function getLocationId(lokasiPenyimpanan) {
     if (!lokasiPenyimpanan || lokasiPenyimpanan === "Diluar") {
@@ -59,8 +58,12 @@ export const getItems = async (req, res) => {
     try {
         const items = await prisma.item.findMany({
             include: {
-                category: true,
-                brand: true,
+                model: {
+                    include: {
+                        materialCategory: true,
+                        brand: true
+                    }
+                },
                 location: { include: { parent: true } },
                 createdBy: { include: { profile: true } }
             },
@@ -87,8 +90,9 @@ export const getItems = async (req, res) => {
             return {
                 id: item.id,
                 serialNumber: item.serialNumber,
-                kategori: item.category ? item.category.nama : "-",
-                merek: item.brand ? item.brand.nama : "-",
+                kategori: item.model?.materialCategory?.nama || "-",
+                merek: item.model?.brand?.nama || "-",
+                tipe: item.model?.nama || "-",
                 status: statusUnit,
                 lokasiPenyimpanan,
                 tanggalMasuk: item.entryDate ? item.entryDate.toISOString().slice(0, 10) : item.createdAt.toISOString().slice(0, 10),
@@ -109,7 +113,16 @@ export const getItemById = async (req, res) => {
         const { id } = req.params;
         const item = await prisma.item.findUnique({
             where: { id },
-            include: { category: true, brand: true, location: { include: { parent: true } }, createdBy: { include: { profile: true } } }
+            include: {
+                model: {
+                    include: {
+                        materialCategory: true,
+                        brand: true
+                    }
+                },
+                location: { include: { parent: true } },
+                createdBy: { include: { profile: true } }
+            }
         });
 
         if (!item) {
@@ -125,7 +138,7 @@ export const getItemById = async (req, res) => {
 
 export const createItem = async (req, res) => {
     try {
-        const { id, serialNumber, kategori, merek, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
+        const { id, serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
 
         if (!serialNumber || !kategori || !merek) {
             return res.status(400).json({ message: 'Serial number, kategori, dan merek wajib diisi' });
@@ -136,9 +149,11 @@ export const createItem = async (req, res) => {
             return res.status(400).json({ message: 'Serial number sudah terdaftar di sistem' });
         }
 
-        let category = await prisma.category.findFirst({ where: { nama: kategori } });
+        let category = await prisma.materialCategory.findFirst({ where: { nama: kategori } });
         if (!category) {
-            category = await prisma.category.create({ data: { nama: kategori, deskripsi: "-", safetyStock: 5 } });
+            let defaultType = await prisma.materialType.findFirst({ where: { nama: 'Lainnya' } });
+            if (!defaultType) defaultType = await prisma.materialType.create({ data: { nama: 'Lainnya' } });
+            category = await prisma.materialCategory.create({ data: { nama: kategori, typeId: defaultType.id, safetyStock: 5 } });
         }
 
         let brand = await prisma.brand.findFirst({ where: { nama: merek } });
@@ -147,8 +162,21 @@ export const createItem = async (req, res) => {
                 data: {
                     nama: merek,
                     origin: "Global",
-                    identifier: merek.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000),
-                    categoryId: category.id
+                    identifier: merek.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
+                }
+            });
+        }
+
+        const modelName = tipe || "Default";
+        let model = await prisma.materialModel.findFirst({
+            where: { nama: modelName, materialCategoryId: category.id, brandId: brand.id }
+        });
+        if (!model) {
+            model = await prisma.materialModel.create({
+                data: {
+                    nama: modelName,
+                    materialCategoryId: category.id,
+                    brandId: brand.id
                 }
             });
         }
@@ -168,15 +196,22 @@ export const createItem = async (req, res) => {
             data: {
                 id: id || undefined,
                 serialNumber,
-                categoryId: category.id,
-                brandId: brand.id,
+                modelId: model.id,
                 status: prismaStatus,
                 locationId,
                 entryDate,
                 exitDate,
                 createdById
             },
-            include: { category: true, brand: true, location: { include: { parent: true } } }
+            include: {
+                model: {
+                    include: {
+                        materialCategory: true,
+                        brand: true
+                    }
+                },
+                location: { include: { parent: true } }
+            }
         });
 
         res.status(201).json({ message: 'Item created successfully', item: newItem });
@@ -189,36 +224,55 @@ export const createItem = async (req, res) => {
 export const updateItem = async (req, res) => {
     try {
         const { id } = req.params;
-        const { serialNumber, kategori, merek, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
+        const { serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
 
         const item = await prisma.item.findUnique({ where: { id } });
         if (!item) {
             return res.status(404).json({ message: 'Item not found' });
         }
 
-        let categoryId = item.categoryId;
-        if (kategori) {
-            let category = await prisma.category.findFirst({ where: { nama: kategori } });
-            if (!category) {
-                category = await prisma.category.create({ data: { nama: kategori, deskripsi: "-", safetyStock: 5 } });
-            }
-            categoryId = category.id;
-        }
+        let modelId = item.modelId;
+        if (kategori || merek || tipe) {
+            const currentModel = await prisma.materialModel.findUnique({
+                where: { id: item.modelId },
+                include: { materialCategory: true, brand: true }
+            });
 
-        let brandId = item.brandId;
-        if (merek) {
-            let brand = await prisma.brand.findFirst({ where: { nama: merek } });
+            let categoryName = kategori || currentModel.materialCategory.nama;
+            let brandName = merek || currentModel.brand.nama;
+            let modelName = tipe || currentModel.nama;
+
+            let category = await prisma.materialCategory.findFirst({ where: { nama: categoryName } });
+            if (!category) {
+                let defaultType = await prisma.materialType.findFirst({ where: { nama: 'Lainnya' } });
+                if (!defaultType) defaultType = await prisma.materialType.create({ data: { nama: 'Lainnya' } });
+                category = await prisma.materialCategory.create({ data: { nama: categoryName, typeId: defaultType.id, safetyStock: 5 } });
+            }
+
+            let brand = await prisma.brand.findFirst({ where: { nama: brandName } });
             if (!brand) {
                 brand = await prisma.brand.create({
                     data: {
-                        nama: merek,
+                        nama: brandName,
                         origin: "Global",
-                        identifier: merek.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000),
-                        categoryId
+                        identifier: brandName.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
                     }
                 });
             }
-            brandId = brand.id;
+
+            let model = await prisma.materialModel.findFirst({
+                where: { nama: modelName, materialCategoryId: category.id, brandId: brand.id }
+            });
+            if (!model) {
+                model = await prisma.materialModel.create({
+                    data: {
+                        nama: modelName,
+                        materialCategoryId: category.id,
+                        brandId: brand.id
+                    }
+                });
+            }
+            modelId = model.id;
         }
 
         const locationId = lokasiPenyimpanan ? await getLocationId(lokasiPenyimpanan) : item.locationId;
@@ -239,15 +293,22 @@ export const updateItem = async (req, res) => {
             where: { id },
             data: {
                 serialNumber: serialNumber || item.serialNumber,
-                categoryId,
-                brandId,
+                modelId,
                 status: prismaStatus,
                 locationId,
                 entryDate,
                 exitDate,
                 createdById
             },
-            include: { category: true, brand: true, location: { include: { parent: true } } }
+            include: {
+                model: {
+                    include: {
+                        materialCategory: true,
+                        brand: true
+                    }
+                },
+                location: { include: { parent: true } }
+            }
         });
 
         res.json({ message: 'Item updated successfully', item: updatedItem });

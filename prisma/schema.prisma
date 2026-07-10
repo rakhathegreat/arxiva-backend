@@ -1,423 +1,453 @@
-  // This is your Prisma schema file,
-  // learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-  // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-  // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
-  generator client {
-    provider = "prisma-client-js"
-  }
-
-  datasource db {
-    provider = "mysql"
-    url      = env("DATABASE_URL")
-  }
-
-  // -----------------------------------------------------------------------------
-  // ENUMS
-  // -----------------------------------------------------------------------------
-
-  /// Role of the user in the system.
-  enum Role {
-    ADMIN
-    MITRA
-  }
-
-  /// Current physical status of an item.
-  enum Status {
-    tersedia /// Item is available and in good condition
-    digunakan /// Item is currently in use or deployed
-    rusak /// Item is damaged
-    hilang /// Item is lost
-  }
-
-  /// Category of the notification for the user.
-  enum NotificationType {
-    SYSTEM
-    REQUEST
-    STOCK_IN
-    STOCK_OUT
-    STOCK_LOW
-  }
-
-  /// Category for transaction logs to track the movement or status change of an item.
-  enum MutationType {
-    MASUK /// Item entering inventory
-    KELUAR /// Item leaving inventory
-    RUSAK /// Item marked as damaged
-    HILANG /// Item marked as lost
-  }
-
-  /// Defines the hierarchical type of a location.
-  enum LocationType {
-    BRANCH /// Main branch office
-    PARTNER /// External partner location
-    RACK /// Physical rack within a branch/partner
-    BOX /// Box within a rack
-    PALLET /// Pallet for bulk storage
-  }
-
-  /// Type of entity referenced by a notification.
-  enum ReferenceType {
-    ITEM
-    ITEM_MUTATION
-    LOCATION
-    USER
-  }
-
-  /// Status lifecycle of an item request.
-  enum RequestStatus {
-    DRAFT /// Draft request@
-    MENUNGGU /// Waiting for approval
-    DISETUJUI /// Approved by admin
-    SIAP /// Ready to take
-    DITERIMA /// Received by partner/requester
-    SELESAI /// Request fully completed
-    DITOLAK /// Rejected
-    DIBATALKAN /// Cancelled by the requester
-  }
-
-  // -----------------------------------------------------------------------------
-  // MODELS
-  // -----------------------------------------------------------------------------
-
-  /// Core user account representing both system admins and partners.
-  model User {
-    id                 String  @id @default(uuid())
-    username           String  @unique
-    password           String
-    role               Role    @default(MITRA)
-    isAktif            Boolean @default(true) /// Soft delete/disable flag
-    googleConnected    Boolean @default(false)
-    googleEmail        String?
-    googleAccessToken  String? @db.Text
-    googleRefreshToken String? @db.Text
-
-    profile UserProfile?
-
-    items         Item[]
-    itemMutations ItemMutation[]
-    notifications Notification[]
-    locations     UserLocation[]
-
-    requests           Request[]           @relation("Requester")
-    allocatedRequests  RequestAllocation[] @relation("Allocator")
-    generatedDocuments DeliveryDocument[]  @relation("GeneratedDocument")
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+/// Role of the user in the system.
+enum Role {
+  ADMIN
+  MITRA
+}
+
+/// Current physical status of an item.
+enum Status {
+  tersedia /// Item is available and in good condition
+  digunakan /// Item is currently in use or deployed
+  rusak /// Item is damaged
+  hilang /// Item is lost
+}
+
+/// Category of the notification for the user.
+enum NotificationType {
+  SYSTEM
+  REQUEST
+  STOCK_IN
+  STOCK_OUT
+  STOCK_LOW
+}
+
+/// Category for transaction logs to track the movement or status change of an item.
+enum MutationType {
+  MASUK /// Item entering inventory
+  KELUAR /// Item leaving inventory
+  RUSAK /// Item marked as damaged
+  HILANG /// Item marked as lost
+}
+
+/// Defines the hierarchical type of a location.
+enum LocationType {
+  BRANCH /// Main branch office
+  PARTNER /// External partner location
+  RACK /// Physical rack within a branch/partner
+  BOX /// Box within a rack
+  PALLET /// Pallet for bulk storage
+}
+
+/// Type of entity referenced by a notification.
+enum ReferenceType {
+  ITEM
+  ITEM_MUTATION
+  LOCATION
+  USER
+}
+
+/// Status lifecycle of an item request.
+enum RequestStatus {
+  DRAFT /// Draft request@
+  MENUNGGU /// Waiting for approval
+  DISETUJUI /// Approved by admin
+  SIAP /// Ready to take
+  DITERIMA /// Received by partner/requester
+  SELESAI /// Request fully completed
+  DITOLAK /// Rejected
+  DIBATALKAN /// Cancelled by the requester
+}
+
+// -----------------------------------------------------------------------------
+// MODELS
+// -----------------------------------------------------------------------------
+
+/// Core user account representing both system admins and partners.
+model User {
+  id                 String  @id @default(uuid())
+  username           String  @unique
+  password           String
+  role               Role    @default(MITRA)
+  isAktif            Boolean @default(true) /// Soft delete/disable flag
+  googleConnected    Boolean @default(false)
+  googleEmail        String?
+  googleAccessToken  String? @db.Text
+  googleRefreshToken String? @db.Text
+
+  profile UserProfile?
+
+  items         Item[]
+  itemMutations ItemMutation[]
+  notifications Notification[]
+  locations     UserLocation[]
+
+  requests           Request[]           @relation("Requester")
+  allocatedRequests  RequestAllocation[] @relation("Allocator")
+  generatedDocuments DeliveryDocument[]  @relation("GeneratedDocument")
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  /// Detailed profile information for a User.
-  model UserProfile {
-    id            String   @id @default(uuid())
-    userId        String   @unique
-    user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-    email         String
-    nama          String
-    telepon       String
-    alamat        String
-    code          String? /// Unique partner identification code
-    partnerType   String?
-    contactPerson String?
-    createdAt     DateTime @default(now())
-    updatedAt     DateTime @updatedAt
-  }
+/// Detailed profile information for a User.
+model UserProfile {
+  id            String   @id @default(uuid())
+  userId        String   @unique
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  email         String
+  nama          String
+  telepon       String
+  alamat        String
+  code          String? /// Unique partner identification code
+  partnerType   String?
+  contactPerson String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
 
-  /// Master category for grouping related items (e.g., Laptops, Monitors).
-  model Category {
-    id          Int     @id @default(autoincrement())
-    nama        String
-    deskripsi   String?
-    safetyStock Int     @default(0) /// Minimum stock threshold before low stock alert
+/// Master reference for material types (e.g., ONT, Kabel).
+model MaterialType {
+  id   Int    @id @default(autoincrement())
+  nama String @unique
 
-    brands Brand[]
-    items  Item[]
+  categories MaterialCategory[]
 
-    requestItems RequestItem[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+/// Master category for grouping related items (e.g., Laptops, Monitors).
+model MaterialCategory {
+  id Int @id @default(autoincrement())
 
-  /// Brand or manufacturer associated with a Category.
-  model Brand {
-    id         Int    @id @default(autoincrement())
-    nama       String @unique
-    origin     String /// Country or region of origin
-    identifier String @unique /// Code or slug used for generation/tracking
+  nama   String
+  
+  typeId Int
+  type   MaterialType @relation(fields: [typeId], references: [id])
 
-    categoryId Int
-    category   Category @relation(fields: [categoryId], references: [id])
+  safetyStock Int @default(0) /// Minimum stock threshold before low stock alert
 
-    items         Item[]
-    locationRules BrandLocationRule[]
+  models MaterialModel[]
 
-    requestItems RequestItem[]
+  requestItems RequestItem[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
-  }
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-  /// System and operational notifications for users.
-  model Notification {
-    id String @id @default(uuid())
+/// Brand or manufacturer associated with a Category.
+model Brand {
+  id         Int    @id @default(autoincrement())
+  nama       String @unique
+  origin     String /// Country or region of origin
+  identifier String @unique /// Code or slug used for generation/tracking
 
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  models        MaterialModel[]
+  locationRules BrandLocationRule[]
 
-    title   String
-    message String
-    type    NotificationType @default(SYSTEM)
+  requestItems RequestItem[]
 
-    isRead Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
-    referenceId   String? /// Polymorphic relation ID
-    referenceType ReferenceType? /// Polymorphic relation type
+model MaterialModel {
+  id   Int    @id @default(autoincrement())
+  nama String @unique
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  materialCategoryId Int
+  materialCategory   MaterialCategory @relation(fields: [materialCategoryId], references: [id])
 
-    @@index([userId])
-    @@index([userId, isRead])
-    @@index([createdAt])
-  }
+  brandId Int
+  brand   Brand @relation(fields: [brandId], references: [id])
 
-  /// Represents a single physical asset in the inventory system.
-  model Item {
-    id String @id @default(uuid())
+  items Item[]
+  requestItems RequestItem[]
 
-    createdById String
-    createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    serialNumber String @unique /// Unique hardware serial number
+  @@index([brandId])
+  @@index([materialCategoryId])
+}
 
-    categoryId Int
-    category   Category @relation(fields: [categoryId], references: [id])
+/// System and operational notifications for users.
+model Notification {
+  id String @id @default(uuid())
 
-    brandId Int
-    brand   Brand @relation(fields: [brandId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    status Status @default(tersedia)
+  title   String
+  message String
+  type    NotificationType @default(SYSTEM)
 
-    paNumber String? /// Property/Asset number assigned by organization
+  isRead Boolean @default(false)
 
-    locationId Int?
-    location   Location? @relation(fields: [locationId], references: [id])
+  referenceId   String? /// Polymorphic relation ID
+  referenceType ReferenceType? /// Polymorphic relation type
 
-    entryDate DateTime /// Date item was received into inventory
-    exitDate  DateTime? /// Date item left inventory or was deployed
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    mutations ItemMutation[]
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([createdAt])
+}
 
-    requestAllocations RequestAllocation[]
+/// Represents a single physical asset in the inventory system.
+model Item {
+  id String @id @default(uuid())
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
-    @@index([brandId])
-    @@index([categoryId])
-    @@index([status])
-    @@index([createdById])
-    @@index([createdAt])
-    @@index([locationId])
-  }
+  serialNumber String @unique /// Unique hardware serial number
 
-  /// Audit log for item movements and status changes.
-  model ItemMutation {
-    id String @id @default(uuid())
+  modelId Int
+  model   MaterialModel @relation(fields: [modelId], references: [id])
 
-    mutationNumber String?      @unique
-    type           MutationType
+  status Status @default(tersedia)
 
-    itemId String
-    item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  paNumber String? /// Property/Asset number assigned by organization
 
-    userId String /// User who performed the transaction
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
 
-    serialNumber String /// Snapshotted serial number
-    brand        String /// Snapshotted brand
-    category     String /// Snapshotted category
-    paNumber     String /// Snapshotted Property/Asset number
+  entryDate DateTime /// Date item was received into inventory
+  exitDate  DateTime? /// Date item left inventory or was deployed
 
-    originLocationId      Int?
-    destinationLocationId Int?
+  mutations ItemMutation[]
 
-    originLocation      Location? @relation("OriginLocation", fields: [originLocationId], references: [id])
-    destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
+  requestAllocations RequestAllocation[]
 
-    requestId String?
-    request   Request? @relation(fields: [requestId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  @@index([modelId])
+  @@index([status])
+  @@index([createdById])
+  @@index([createdAt])
+  @@index([locationId])
+}
 
-    @@index([userId])
-    @@index([createdAt])
-    @@index([requestId])
-  }
+/// Audit log for item movements and status changes.
+model ItemMutation {
+  id String @id @default(uuid())
 
-  /// Physical or logical storage location (hierarchical).
-  model Location {
-    id       Int          @id @default(autoincrement())
-    name     String       @unique
-    type     LocationType
-    capacity Int          @default(0) /// Maximum items allowed
-    code     String?      @unique
+  mutationNumber String?      @unique
+  type           MutationType
 
-    parentId Int?
-    parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-    children Location[] @relation("LocationHierarchy")
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
-    isActive Boolean @default(true)
+  userId String /// User who performed the transaction
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-    items         Item[]
-    userLocations UserLocation[]
+  serialNumber String /// Snapshotted serial number
+  brand        String /// Snapshotted brand
+  category     String /// Snapshotted category
+  paNumber     String /// Snapshotted Property/Asset number
 
-    brandRules BrandLocationRule[]
+  originLocationId      Int?
+  destinationLocationId Int?
 
-    originMutations ItemMutation[] @relation("OriginLocation")
+  originLocation      Location? @relation("OriginLocation", fields: [originLocationId], references: [id])
+  destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
 
-    destinationMutations ItemMutation[] @relation("DestinationLocation")
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id])
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    @@index([parentId])
-    @@index([type])
-  }
+  @@index([userId])
+  @@index([createdAt])
+  @@index([requestId])
+}
 
-  /// Join table for associating users with specific locations.
-  model UserLocation {
-    userId String
-    user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+/// Physical or logical storage location (hierarchical).
+model Location {
+  id       Int          @id @default(autoincrement())
+  name     String       @unique
+  type     LocationType
+  capacity Int          @default(0) /// Maximum items allowed
+  code     String?      @unique
 
-    locationId Int
-    location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  parentId Int?
+  parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Location[] @relation("LocationHierarchy")
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  isActive Boolean @default(true)
 
-    @@id([userId, locationId])
-  }
+  items         Item[]
+  userLocations UserLocation[]
 
-  /// Rules restricting which brands can be stored in which locations.
-  model BrandLocationRule {
-    id Int @id @default(autoincrement())
+  brandRules BrandLocationRule[]
 
-    brandId Int
-    brand   Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+  originMutations ItemMutation[] @relation("OriginLocation")
 
-    locationId Int
-    location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  destinationMutations ItemMutation[] @relation("DestinationLocation")
 
-    isDefault Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    createdAt DateTime @default(now())
+  @@index([parentId])
+  @@index([type])
+}
 
-    @@unique([brandId, locationId])
-  }
+/// Join table for associating users with specific locations.
+model UserLocation {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  /// Request for items made by a partner or branch.
-  model Request {
-    id String @id @default(uuid())
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-    requestNumber String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    requesterId String
-    requester   User   @relation("Requester", fields: [requesterId], references: [id])
+  @@id([userId, locationId])
+}
 
-    status RequestStatus @default(MENUNGGU)
+/// Rules restricting which brands can be stored in which locations.
+model BrandLocationRule {
+  id Int @id @default(autoincrement())
 
-    notes String?
+  brandId Int
+  brand   Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
 
-    requestedAt DateTime @default(now())
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-    approvedAt DateTime?
+  isDefault Boolean @default(false)
 
-    processedAt DateTime?
+  createdAt DateTime @default(now())
 
-    shippedAt DateTime?
+  @@unique([brandId, locationId])
+}
 
-    receivedAt DateTime?
+/// Request for items made by a partner or branch.
+model Request {
+  id String @id @default(uuid())
 
-    completedAt DateTime?
+  requestNumber String @unique
 
-    requestItems RequestItem[]
-    itemMutations ItemMutation[]
+  requesterId String
+  requester   User   @relation("Requester", fields: [requesterId], references: [id])
 
-    createdAt        DateTime          @default(now())
-    updatedAt        DateTime          @updatedAt
-    deliveryDocument DeliveryDocument?
+  status RequestStatus @default(MENUNGGU)
 
-    @@index([requesterId])
-    @@index([status])
-  }
+  notes String?
 
-  /// Specific requested quantity of a category/brand within a Request.
-  model RequestItem {
-    id String @id @default(uuid())
+  requestedAt DateTime @default(now())
 
-    requestId String
-    request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  approvedAt DateTime?
 
-    categoryId Int
-    category   Category @relation(fields: [categoryId], references: [id])
+  processedAt DateTime?
 
-    brandId Int?
-    brand   Brand? @relation(fields: [brandId], references: [id])
+  shippedAt DateTime?
 
-    quantity Int
+  receivedAt DateTime?
 
-    fulfilledQuantity Int @default(0) /// Tracks how many items have been allocated
+  completedAt DateTime?
 
-    allocations RequestAllocation[]
+  requestItems  RequestItem[]
+  itemMutations ItemMutation[]
 
-    createdAt DateTime @default(now())
-    updatedAt DateTime @updatedAt
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deliveryDocument DeliveryDocument?
 
-    @@index([requestId])
-  }
+  @@index([requesterId])
+  @@index([status])
+}
 
-  /// Join table mapping specific physical items to a fulfilled RequestItem.
-  model RequestAllocation {
-    id String @id @default(uuid())
+/// Specific requested quantity of a category/brand within a Request.
+model RequestItem {
+  id String @id @default(uuid())
 
-    requestItemId String
-    requestItem   RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
-    itemId String
-    item   Item   @relation(fields: [itemId], references: [id])
+  materialCategoryId Int
+  materialCategory   MaterialCategory @relation(fields: [materialCategoryId], references: [id])
 
-    allocatedById String
-    allocatedBy   User   @relation("Allocator", fields: [allocatedById], references: [id])
+  brandId Int?
+  brand   Brand? @relation(fields: [brandId], references: [id])
 
-    allocatedAt DateTime @default(now())
+  modelId Int?
+  model   MaterialModel? @relation(fields: [modelId], references: [id])
 
-    createdAt DateTime @default(now())
+  quantity Int
 
-    @@unique([itemId])
-  }
+  fulfilledQuantity Int @default(0) /// Tracks how many items have been allocated
 
-  /// Official generated document (e.g., Berita Acara Serah Terima) for a request.
-  model DeliveryDocument {
-    id String @id @default(uuid())
+  allocations RequestAllocation[]
 
-    requestId String @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-    request Request @relation(fields: [requestId], references: [id])
+  @@index([requestId])
+}
 
-    documentNumber String @unique
+/// Join table mapping specific physical items to a fulfilled RequestItem.
+model RequestAllocation {
+  id String @id @default(uuid())
 
-    filePath String /// Remote or local path to the generated PDF
+  requestItemId String
+  requestItem   RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
 
-    generatedById String
-    generatedBy   User   @relation("GeneratedDocument", fields: [generatedById], references: [id])
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id])
 
-    generatedAt DateTime @default(now())
+  allocatedById String
+  allocatedBy   User   @relation("Allocator", fields: [allocatedById], references: [id])
 
-    signedAt DateTime?
+  allocatedAt DateTime @default(now())
 
-    createdAt DateTime @default(now())
-  }
+  createdAt DateTime @default(now())
+
+  @@unique([itemId])
+}
+
+/// Official generated document (e.g., Berita Acara Serah Terima) for a request.
+model DeliveryDocument {
+  id String @id @default(uuid())
+
+  requestId String @unique
+
+  request Request @relation(fields: [requestId], references: [id])
+
+  documentNumber String @unique
+
+  filePath String /// Remote or local path to the generated PDF
+
+  generatedById String
+  generatedBy   User   @relation("GeneratedDocument", fields: [generatedById], references: [id])
+
+  generatedAt DateTime @default(now())
+
+  signedAt DateTime?
+
+  createdAt DateTime @default(now())
+}

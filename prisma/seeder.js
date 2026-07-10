@@ -13,11 +13,13 @@ async function main() {
     await prisma.deliveryDocument.deleteMany();
     await prisma.request.deleteMany();
     await prisma.item.deleteMany();
+    await prisma.materialModel.deleteMany();
     await prisma.brandLocationRule.deleteMany();
     await prisma.userLocation.deleteMany();
     await prisma.location.deleteMany();
     await prisma.brand.deleteMany();
-    await prisma.category.deleteMany();
+    await prisma.materialCategory.deleteMany();
+    await prisma.materialType.deleteMany();
     await prisma.notification.deleteMany();
     await prisma.userProfile.deleteMany();
     await prisma.user.deleteMany();
@@ -50,20 +52,20 @@ async function main() {
 
     // Mitra-mitra
     const partnersData = [
-        { username: 'pt_naratas', nama: 'PT Naratas', email: 'contact@naratas.com', partnerType: 'Mitra' },
-        { username: 'pt_tzu', nama: 'PT TZU', email: 'contact@tzu.com', partnerType: 'Mitra' },
-        { username: 'mitra_demo', nama: 'Mitra Alpha', email: 'alpha@mitra.com', partnerType: 'Mitra' },
-        { username: 'pt_beta', nama: 'PT Beta', email: 'contact@beta.com', partnerType: 'Mitra' },
-        { username: 'pt_telkom_akses', nama: 'PT Telkom Akses', email: 'info@telkomakses.co.id', partnerType: 'Mitra' },
-        { username: 'pt_stp', nama: 'PT Solusi Tunas Pratama', email: 'contact@stp.co.id', partnerType: 'Mitra' },
-        { username: 'pt_fmi', nama: 'PT Fiber Media Indonesia', email: 'info@fibermedia.co.id', partnerType: 'Mitra' },
-        { username: 'pt_ibs', nama: 'PT Inti Bangun Sejahtera', email: 'support@ibstower.com', partnerType: 'Mitra' },
-        { username: 'pt_lintasarta', nama: 'PT Lintasarta', email: 'helpdesk@lintasarta.co.id', partnerType: 'Mitra' },
-        { username: 'pt_moratelindo', nama: 'PT Moratelindo', email: 'noc@moratelindo.co.id', partnerType: 'Mitra' },
-        { username: 'pt_tower_bersama', nama: 'PT Tower Bersama', email: 'info@tbg.co.id', partnerType: 'Mitra' },
-        { username: 'pt_linknet', nama: 'PT Link Net', email: 'corp.secretary@linknet.co.id', partnerType: 'Mitra' },
-        { username: 'pt_cmi', nama: 'PT Centratama Menara Indonesia', email: 'info@centratamagroup.com', partnerType: 'Mitra' },
-        { username: 'pt_xl_axiata', nama: 'PT XL Axiata', email: 'customercare@xl.co.id', partnerType: 'Mitra' }
+        { username: 'pt_naratas', nama: 'PT Naratas', email: 'contact@naratas.com', partnerType: 'Gangguan' },
+        { username: 'pt_tzu', nama: 'PT TZU', email: 'contact@tzu.com', partnerType: 'Aktivasi' },
+        { username: 'mitra_demo', nama: 'Mitra Alpha', email: 'alpha@mitra.com', partnerType: 'Gangguan' },
+        { username: 'pt_beta', nama: 'PT Beta', email: 'contact@beta.com', partnerType: 'Gangguan' },
+        { username: 'pt_telkom_akses', nama: 'PT Telkom Akses', email: 'info@telkomakses.co.id', partnerType: 'Gangguan' },
+        { username: 'pt_stp', nama: 'PT Solusi Tunas Pratama', email: 'contact@stp.co.id', partnerType: 'Aktivasi' },
+        { username: 'pt_fmi', nama: 'PT Fiber Media Indonesia', email: 'info@fibermedia.co.id', partnerType: 'Aktivasi' },
+        { username: 'pt_ibs', nama: 'PT Inti Bangun Sejahtera', email: 'support@ibstower.com', partnerType: 'Aktivasi' },
+        { username: 'pt_lintasarta', nama: 'PT Lintasarta', email: 'helpdesk@lintasarta.co.id', partnerType: 'Aktivasi' },
+        { username: 'pt_moratelindo', nama: 'PT Moratelindo', email: 'noc@moratelindo.co.id', partnerType: 'Aktivasi' },
+        { username: 'pt_tower_bersama', nama: 'PT Tower Bersama', email: 'info@tbg.co.id', partnerType: 'Aktivasi' },
+        { username: 'pt_linknet', nama: 'PT Link Net', email: 'corp.secretary@linknet.co.id', partnerType: 'Gangguan' },
+        { username: 'pt_cmi', nama: 'PT Centratama Menara Indonesia', email: 'info@centratamagroup.com', partnerType: 'Aktivasi' },
+        { username: 'pt_xl_axiata', nama: 'PT XL Axiata', email: 'customercare@xl.co.id', partnerType: 'Aktivasi' }
     ];
 
 
@@ -91,25 +93,40 @@ async function main() {
     console.log('✅ User & Profile Mitra berhasil dibuat');
 
     // 4. Buat Kategori
-    const catONT = await prisma.category.create({ data: { nama: 'GPON, ONT EG8021V5,2.4/5GHz Wi-Fi', deskripsi: 'Optical Network Terminal', safetyStock: 50 } });
-    const catKabel = await prisma.category.create({ data: { nama: 'FOC, DropWire3SlgSC-UPC,1F,100m', deskripsi: 'Fiber Optic Cable', safetyStock: 100 } });
+    const typeONT = await prisma.materialType.create({ data: { nama: 'ONT' } });
+    const typeKabel = await prisma.materialType.create({ data: { nama: 'Kabel' } });
+
+    const catONT = await prisma.materialCategory.create({ data: { nama: 'ONT', typeId: typeONT.id, safetyStock: 50 } });
+    const catKabel = await prisma.materialCategory.create({ data: { nama: 'DropWire (100m)', typeId: typeKabel.id, safetyStock: 100 } });
     console.log('✅ Kategori Aset berhasil dibuat');
 
     // 5. Buat Brand
-    const bHuawei = await prisma.brand.create({ data: { nama: 'HUAWEI', origin: 'China', identifier: 'HWA', categoryId: catONT.id } });
-    const bFiberhome = await prisma.brand.create({ data: { nama: 'FIBERHOME', origin: 'China', identifier: 'FBH', categoryId: catKabel.id } });
+    const bHuawei = await prisma.brand.create({ data: { nama: 'HUAWEI', origin: 'China', identifier: 'HWA' } });
+    const bFiberhome = await prisma.brand.create({ data: { nama: 'FIBERHOME', origin: 'China', identifier: 'FBH' } });
     console.log('✅ Brand Aset berhasil dibuat');
+
+    // 5b. Buat Model
+    const modelHG8245H = await prisma.materialModel.create({
+        data: { nama: 'HG8245H', materialCategoryId: catONT.id, brandId: bHuawei.id }
+    });
+    const modelEG8145V5 = await prisma.materialModel.create({
+        data: { nama: 'EG8145V5', materialCategoryId: catONT.id, brandId: bHuawei.id }
+    });
+    const modelFiberhome1Core = await prisma.materialModel.create({
+        data: { nama: '1-Core 150m', materialCategoryId: catKabel.id, brandId: bFiberhome.id }
+    });
+    console.log('✅ Model Aset berhasil dibuat');
 
     // 6. Buat Lokasi
     const locGudang = await prisma.location.create({ data: { name: 'Gudang Utama', type: 'BRANCH', capacity: 1000 } });
     const locRak1 = await prisma.location.create({ data: { name: 'Rak A - Baris 1', type: 'BOX', parentId: locGudang.id, capacity: 500 } });
     const locRak2 = await prisma.location.create({ data: { name: 'Rak A - Baris 2', type: 'BOX', parentId: locGudang.id, capacity: 500 } });
-    
+
     // Lokasi Mitra disinkronkan dengan entitas User Profile
     const partnerLocations = {};
     for (const partner of partnersData) {
-        partnerLocations[partner.nama] = await prisma.location.create({ 
-            data: { name: partner.nama, type: 'PARTNER', capacity: 500 } 
+        partnerLocations[partner.nama] = await prisma.location.create({
+            data: { name: partner.nama, type: 'PARTNER', capacity: 500 }
         });
     }
     const locNaratas = partnerLocations['PT Naratas'];
@@ -122,21 +139,27 @@ async function main() {
     const createdItems = [];
     let paCounter = 1000;
 
-    const createItems = async (count, category, brand, loc, status, ownerId) => {
+    const createItems = async (count, model, loc, status, ownerId) => {
         const items = [];
         for (let i = 0; i < count; i++) {
             const item = await prisma.item.create({
                 data: {
                     serialNumber: generateHexSN(),
-                    categoryId: category.id,
-                    brandId: brand.id,
+                    modelId: model.id,
                     status: status,
                     locationId: loc.id,
                     entryDate: new Date(Date.now() - Math.floor(Math.random() * 40 + 10) * 24 * 60 * 60 * 1000),
                     createdById: ownerId,
                     paNumber: `PA-ARX-${paCounter++}`
                 },
-                include: { category: true, brand: true }
+                include: {
+                    model: {
+                        include: {
+                            materialCategory: true,
+                            brand: true
+                        }
+                    }
+                }
             });
             items.push(item);
             createdItems.push(item);
@@ -144,24 +167,26 @@ async function main() {
         return items;
     };
 
-    const gudangONTs = await createItems(100, catONT, bHuawei, locRak1, 'tersedia', adminUser.id);
-    const gudangKabels = await createItems(50, catKabel, bFiberhome, locRak2, 'tersedia', adminUser.id);
-    const naratasONTs = await createItems(50, catONT, bHuawei, locNaratas, 'digunakan', mappedPartners['PT Naratas']);
-    
+    const gudangONTs = await createItems(100, modelHG8245H, locRak1, 'tersedia', adminUser.id);
+    const gudangKabels = await createItems(50, modelFiberhome1Core, locRak2, 'tersedia', adminUser.id);
+    const naratasONTs = await createItems(50, modelEG8145V5, locNaratas, 'digunakan', mappedPartners['PT Naratas']);
+
     // Distribusi barang ke semua Mitra (sebagian tersedia, sebagian digunakan/terpakai)
     for (const partner of partnersData) {
         const loc = partnerLocations[partner.nama];
         const userId = mappedPartners[partner.nama];
-        
+
+        const ontModel = Math.random() > 0.5 ? modelHG8245H : modelEG8145V5;
+
         // Beri acak 5 - 15 ONT dengan status 'digunakan'
-        await createItems(Math.floor(Math.random() * 11) + 5, catONT, bHuawei, loc, 'digunakan', userId);
+        await createItems(Math.floor(Math.random() * 11) + 5, ontModel, loc, 'digunakan', userId);
         // Beri acak 3 - 10 ONT dengan status 'tersedia'
-        await createItems(Math.floor(Math.random() * 8) + 3, catONT, bHuawei, loc, 'tersedia', userId);
-        
+        await createItems(Math.floor(Math.random() * 8) + 3, ontModel, loc, 'tersedia', userId);
+
         // Beri acak 5 - 15 Kabel dengan status 'digunakan'
-        await createItems(Math.floor(Math.random() * 11) + 5, catKabel, bFiberhome, loc, 'digunakan', userId);
+        await createItems(Math.floor(Math.random() * 11) + 5, modelFiberhome1Core, loc, 'digunakan', userId);
         // Beri acak 3 - 10 Kabel dengan status 'tersedia'
-        await createItems(Math.floor(Math.random() * 8) + 3, catKabel, bFiberhome, loc, 'tersedia', userId);
+        await createItems(Math.floor(Math.random() * 8) + 3, modelFiberhome1Core, loc, 'tersedia', userId);
     }
 
     console.log(`✅ ${createdItems.length} Item Aset berhasil dibuat dan didistribusikan`);
@@ -185,8 +210,8 @@ async function main() {
                     itemId: randomItem.id,
                     userId: randomItem.createdById,
                     serialNumber: randomItem.serialNumber,
-                    brand: randomItem.brand.nama,
-                    category: randomItem.category.nama,
+                    brand: randomItem.model.brand.nama,
+                    category: randomItem.model.materialCategory.nama,
                     paNumber: randomItem.paNumber || '',
                     createdAt: txDate,
                 }
@@ -196,7 +221,7 @@ async function main() {
     console.log('✅ Transaksi Historis (30 hari terakhir) berhasil dibuat');
 
     // 9. Buat Skenario Request & Lifecycle
-    
+
     // Scenario 1: SELESAI (PT Naratas) - 50 ONT Huawei
     const req1Date = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
     const req1 = await prisma.request.create({
@@ -210,13 +235,13 @@ async function main() {
             completedAt: new Date(req1Date.getTime() + 3 * 24 * 60 * 60 * 1000),
             requestItems: {
                 create: [
-                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 50 }
+                    { materialCategoryId: catONT.id, brandId: bHuawei.id, quantity: 50 }
                 ]
             }
         },
         include: { requestItems: true }
     });
-    
+
     for (const item of naratasONTs) {
         await prisma.requestAllocation.create({
             data: {
@@ -248,7 +273,7 @@ async function main() {
             processedAt: new Date(req2Date.getTime() + 5 * 60 * 60 * 1000),
             requestItems: {
                 create: [
-                    { categoryId: catKabel.id, brandId: bFiberhome.id, quantity: 20 }
+                    { materialCategoryId: catKabel.id, brandId: bFiberhome.id, quantity: 20 }
                 ]
             }
         },
@@ -276,8 +301,8 @@ async function main() {
             requestedAt: req3Date,
             requestItems: {
                 create: [
-                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 30 },
-                    { categoryId: catKabel.id, brandId: bFiberhome.id, quantity: 15 }
+                    { materialCategoryId: catONT.id, brandId: bHuawei.id, quantity: 30 },
+                    { materialCategoryId: catKabel.id, brandId: bFiberhome.id, quantity: 15 }
                 ]
             }
         }
@@ -295,7 +320,7 @@ async function main() {
             processedAt: new Date(req4Date.getTime() + 12 * 60 * 60 * 1000),
             requestItems: {
                 create: [
-                    { categoryId: catONT.id, brandId: bHuawei.id, quantity: 100 }
+                    { materialCategoryId: catONT.id, brandId: bHuawei.id, quantity: 100 }
                 ]
             }
         }
@@ -305,12 +330,12 @@ async function main() {
     const statuses = ['DRAFT', 'MENUNGGU', 'DISETUJUI', 'SIAP', 'DITERIMA', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
     const notesArr = ['Restock bulanan', 'Proyek baru', 'Ganti perangkat rusak', 'Ekspansi jaringan', 'Kebutuhan mendesak', 'Permintaan rutin', '', 'Permintaan cadangan'];
     const partnerKeys = Object.keys(mappedPartners);
-    
-    for(let i = 5; i <= 55; i++) {
+
+    for (let i = 5; i <= 55; i++) {
         const randStatus = statuses[Math.floor(Math.random() * statuses.length)];
         const randPartner = partnerKeys[Math.floor(Math.random() * partnerKeys.length)];
         const reqDate = new Date(now.getTime() - Math.floor(Math.random() * 60) * 24 * 60 * 60 * 1000);
-        
+
         await prisma.request.create({
             data: {
                 requestNumber: `REQ-${reqDate.getFullYear()}-${i.toString().padStart(4, '0')}`,
@@ -320,8 +345,8 @@ async function main() {
                 requestedAt: reqDate,
                 requestItems: {
                     create: [
-                        { categoryId: catONT.id, brandId: bHuawei.id, quantity: Math.floor(Math.random() * 50) + 1 },
-                        ...(Math.random() > 0.5 ? [{ categoryId: catKabel.id, brandId: bFiberhome.id, quantity: Math.floor(Math.random() * 20) + 1 }] : [])
+                        { materialCategoryId: catONT.id, brandId: bHuawei.id, quantity: Math.floor(Math.random() * 50) + 1 },
+                        ...(Math.random() > 0.5 ? [{ materialCategoryId: catKabel.id, brandId: bFiberhome.id, quantity: Math.floor(Math.random() * 20) + 1 }] : [])
                     ]
                 }
             }

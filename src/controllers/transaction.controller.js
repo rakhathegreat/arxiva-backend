@@ -87,9 +87,28 @@ export const createTransaction = async (req, res) => {
             return res.status(400).json({ message: 'SN, nomor, dan kategori wajib diisi' });
         }
 
-        let item = await prisma.item.findUnique({ where: { serialNumber: sn }, include: { brand: true, category: true } });
+        let item = await prisma.item.findUnique({
+            where: { serialNumber: sn },
+            include: {
+                model: {
+                    include: {
+                        brand: true,
+                        materialCategory: true
+                    }
+                }
+            }
+        });
         if (!item) {
-            item = await prisma.item.findFirst({ include: { brand: true, category: true } });
+            item = await prisma.item.findFirst({
+                include: {
+                    model: {
+                        include: {
+                            brand: true,
+                            materialCategory: true
+                        }
+                    }
+                }
+            });
             if (!item) {
                 return res.status(404).json({ message: 'Item terkait tidak ditemukan di sistem' });
             }
@@ -135,14 +154,15 @@ export const createTransaction = async (req, res) => {
         const newTransaction = await prisma.itemMutation.create({
             data: {
                 id: id || undefined,
+                nomor,
                 mutationNumber,
                 type,
                 itemId: item.id,
                 userId,
                 serialNumber: sn,
-                brand: merek || item.brand?.nama || "Unknown",
-                category: item.category?.nama || "Unknown",
-                paNumber: nomor,
+                brand: merek || item.model?.brand?.nama || "Unknown",
+                category: item.model?.materialCategory?.nama || "Unknown",
+                paNumber: nomor || "",
                 originLocationId,
                 destinationLocationId,
                 createdAt: createdAtDate

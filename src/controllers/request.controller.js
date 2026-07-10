@@ -9,8 +9,9 @@ export const getRequests = async (req, res) => {
                 requester: { include: { profile: true } },
                 requestItems: {
                     include: {
-                        category: true,
-                        brand: true
+                        materialCategory: true,
+                        brand: true,
+                        model: true
                     }
                 }
             },
@@ -27,11 +28,12 @@ export const getRequests = async (req, res) => {
             notes: r.notes || "-",
             requestedAt: r.requestedAt,
             itemsCount: r.requestItems.reduce((acc, item) => acc + item.quantity, 0),
-            itemsDetail: r.requestItems.map(item => `${item.category.nama} (${item.quantity})`).join(", "),
+            itemsDetail: r.requestItems.map(item => `${item.materialCategory.nama} (${item.quantity})`).join(", "),
             requestItems: r.requestItems.map(item => ({
                 id: item.id,
-                category: item.category.nama,
+                category: item.materialCategory.nama,
                 brand: item.brand?.nama || "-",
+                model: item.model?.nama || "-",
                 quantity: item.quantity
             }))
         }));
@@ -53,9 +55,23 @@ export const getRequestById = async (req, res) => {
                 requester: { include: { profile: true } },
                 requestItems: {
                     include: {
-                        category: true,
+                        materialCategory: true,
                         brand: true,
-                        allocations: { include: { item: true } }
+                        model: true,
+                        allocations: {
+                            include: {
+                                item: {
+                                    include: {
+                                        model: {
+                                            include: {
+                                                brand: true,
+                                                materialCategory: true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 deliveryDocument: true
@@ -84,15 +100,16 @@ export const createRequest = async (req, res) => {
                 notes,
                 requestItems: {
                     create: items.map(item => ({
-                        categoryId: item.categoryId,
+                        materialCategoryId: item.materialCategoryId,
                         brandId: item.brandId || null,
+                        modelId: item.modelId || null,
                         quantity: item.quantity
                     }))
                 }
             },
             include: {
                 requester: { include: { profile: true } },
-                requestItems: { include: { category: true, brand: true } }
+                requestItems: { include: { materialCategory: true, brand: true, model: true } }
             }
         });
         res.status(201).json({ message: 'Request created successfully', request: newRequest });
@@ -273,9 +290,23 @@ export const downloadBast = async (req, res) => {
                 requester: { include: { profile: true } },
                 requestItems: {
                     include: {
-                        category: true,
+                        materialCategory: true,
                         brand: true,
-                        allocations: { include: { item: true } }
+                        model: true,
+                        allocations: {
+                            include: {
+                                item: {
+                                    include: {
+                                        model: {
+                                            include: {
+                                                brand: true,
+                                                materialCategory: true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 deliveryDocument: {
@@ -328,7 +359,7 @@ export const downloadBast = async (req, res) => {
                 allocations: request.requestItems.flatMap(item =>
                     item.allocations.map(alloc => ({
                         materialNumber: alloc.item?.paNumber || '-',
-                        materialName: `${item.category?.nama || ''} ${item.brand?.nama || ''}`.trim(),
+                        materialName: `${item.materialCategory?.nama || ''} ${item.brand?.nama || ''}`.trim(),
                         serialNumber: alloc.item?.serialNumber || '-',
                         quantity: 1,
                         unit: 'Unit'

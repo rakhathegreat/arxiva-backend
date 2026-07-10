@@ -69,7 +69,7 @@ router.get('/:id', getRequestById);
  *                 items:
  *                   type: object
  *                   properties:
- *                     categoryId:
+ *                     materialCategoryId:
  *                       type: integer
  *                     brandId:
  *                       type: integer

@@ -5,7 +5,11 @@ export const getBrands = async (req, res) => {
     try {
         const brands = await prisma.brand.findMany({
             include: {
-                category: true
+                models: {
+                    include: {
+                        materialCategory: true
+                    }
+                }
             }
         });
         res.json(brands);
@@ -22,7 +26,11 @@ export const getBrandById = async (req, res) => {
         const brand = await prisma.brand.findUnique({
             where: { id: parseInt(id) },
             include: {
-                category: true
+                models: {
+                    include: {
+                        materialCategory: true
+                    }
+                }
             }
         });
 
@@ -40,19 +48,10 @@ export const getBrandById = async (req, res) => {
 // POST /brands
 export const createBrand = async (req, res) => {
     try {
-        const { nama, origin, identifier, categoryId } = req.body;
+        const { nama, origin, identifier } = req.body;
 
-        if (!nama || !origin || !identifier || !categoryId) {
-            return res.status(400).json({ message: 'Nama, origin, identifier, and categoryId are required' });
-        }
-
-        // Check if category exists
-        const category = await prisma.category.findUnique({
-            where: { id: parseInt(categoryId) }
-        });
-
-        if (!category) {
-            return res.status(404).json({ message: 'Category not found' });
+        if (!nama || !origin || !identifier) {
+            return res.status(400).json({ message: 'Nama, origin, and identifier are required' });
         }
 
         // Check if brand nama or identifier already exists
@@ -73,11 +72,7 @@ export const createBrand = async (req, res) => {
             data: {
                 nama,
                 origin,
-                identifier,
-                categoryId: parseInt(categoryId)
-            },
-            include: {
-                category: true
+                identifier
             }
         });
 
@@ -95,7 +90,7 @@ export const createBrand = async (req, res) => {
 export const updateBrand = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, origin, identifier, categoryId } = req.body;
+        const { nama, origin, identifier } = req.body;
 
         const brand = await prisma.brand.findUnique({
             where: { id: parseInt(id) }
@@ -103,16 +98,6 @@ export const updateBrand = async (req, res) => {
 
         if (!brand) {
             return res.status(404).json({ message: 'Brand not found' });
-        }
-
-        if (categoryId) {
-            const category = await prisma.category.findUnique({
-                where: { id: parseInt(categoryId) }
-            });
-
-            if (!category) {
-                return res.status(404).json({ message: 'Category not found' });
-            }
         }
 
         if (nama || identifier) {
@@ -135,14 +120,10 @@ export const updateBrand = async (req, res) => {
         if (nama) updateData.nama = nama;
         if (origin) updateData.origin = origin;
         if (identifier) updateData.identifier = identifier;
-        if (categoryId) updateData.categoryId = parseInt(categoryId);
 
         const updatedBrand = await prisma.brand.update({
             where: { id: parseInt(id) },
-            data: updateData,
-            include: {
-                category: true
-            }
+            data: updateData
         });
 
         res.json({

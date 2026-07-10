@@ -54,14 +54,14 @@ router.get('/:id', getBrandById);
  *   post:
  *     tags: [Brands]
  *     summary: Create brand
- *     description: Create a new brand and associate it with a category.
+ *     description: Create a new brand.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [nama, origin, identifier, categoryId]
+ *             required: [nama, origin, identifier]
  *             properties:
  *               nama:
  *                 type: string
@@ -72,9 +72,6 @@ router.get('/:id', getBrandById);
  *               identifier:
  *                 type: string
  *                 example: SAMS
- *               categoryId:
- *                 type: integer
- *                 example: 1
  *     responses:
  *       201:
  *         description: Brand created successfully
@@ -114,9 +111,6 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createBrand);
  *               identifier:
  *                 type: string
  *                 example: SAMS2
- *               categoryId:
- *                 type: integer
- *                 example: 2
  *     responses:
  *       200:
  *         description: Brand updated successfully

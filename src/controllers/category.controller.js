@@ -3,7 +3,9 @@ import prisma from '../utils/prisma.js';
 // GET /categories
 export const getCategories = async (req, res) => {
     try {
-        const categories = await prisma.category.findMany();
+        const categories = await prisma.materialCategory.findMany({
+            include: { type: true }
+        });
         res.json(categories);
     } catch (error) {
         console.error('Error in getCategories:', error);
@@ -15,8 +17,9 @@ export const getCategories = async (req, res) => {
 export const getCategoryById = async (req, res) => {
     try {
         const { id } = req.params;
-        const category = await prisma.category.findUnique({
-            where: { id: parseInt(id) }
+        const category = await prisma.materialCategory.findUnique({
+            where: { id: parseInt(id) },
+            include: { type: true }
         });
 
         if (!category) {
@@ -33,18 +36,24 @@ export const getCategoryById = async (req, res) => {
 // POST /categories
 export const createCategory = async (req, res) => {
     try {
-        const { nama, deskripsi, safetyStock } = req.body;
+        const { nama, typeId, safetyStock } = req.body;
 
-        if (!nama || !deskripsi) {
-            return res.status(400).json({ message: 'Nama and deskripsi are required' });
+        if (!nama || !typeId) {
+            return res.status(400).json({ message: 'Nama and typeId are required' });
         }
 
-        const newCategory = await prisma.category.create({
+        const typeExists = await prisma.materialType.findUnique({ where: { id: parseInt(typeId) } });
+        if (!typeExists) {
+            return res.status(400).json({ message: 'Material Type not found' });
+        }
+
+        const newCategory = await prisma.materialCategory.create({
             data: {
                 nama,
-                deskripsi,
+                typeId: parseInt(typeId),
                 safetyStock: safetyStock || 0
-            }
+            },
+            include: { type: true }
         });
 
         res.status(201).json({
@@ -61,9 +70,9 @@ export const createCategory = async (req, res) => {
 export const updateCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, deskripsi, safetyStock } = req.body;
+        const { nama, typeId, safetyStock } = req.body;
 
-        const category = await prisma.category.findUnique({
+        const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
         });
 
@@ -73,12 +82,19 @@ export const updateCategory = async (req, res) => {
 
         const updateData = {};
         if (nama) updateData.nama = nama;
-        if (deskripsi) updateData.deskripsi = deskripsi;
-        if (safetyStock) updateData.safetyStock = safetyStock;
+        if (safetyStock !== undefined) updateData.safetyStock = safetyStock;
+        if (typeId) {
+            const typeExists = await prisma.materialType.findUnique({ where: { id: parseInt(typeId) } });
+            if (!typeExists) {
+                return res.status(400).json({ message: 'Material Type not found' });
+            }
+            updateData.typeId = parseInt(typeId);
+        }
 
-        const updatedCategory = await prisma.category.update({
+        const updatedCategory = await prisma.materialCategory.update({
             where: { id: parseInt(id) },
-            data: updateData
+            data: updateData,
+            include: { type: true }
         });
 
         res.json({
@@ -96,7 +112,7 @@ export const deleteCategory = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const category = await prisma.category.findUnique({
+        const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
         });
 
@@ -104,7 +120,7 @@ export const deleteCategory = async (req, res) => {
             return res.status(404).json({ message: 'Category not found' });
         }
 
-        await prisma.category.delete({
+        await prisma.materialCategory.delete({
             where: { id: parseInt(id) }
         });
 
