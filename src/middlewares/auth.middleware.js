@@ -2,7 +2,7 @@ import { verifyToken } from '../utils/jwt.js';
 import prisma from '../utils/prisma.js';
 
 export const authMiddleware = async (req, res, next) => {
-    const token = req.headers.authorization;
+    const token = req.headers.authorization || req.query.token;
 
     if (!token) {
         return res.status(401).json({ message: 'Unauthorized. No token provided.' });

@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma.js';
 import { logMutation } from '../utils/mutation.util.js';
+import { generateBastPdfStream } from '../services/pdf.service.js';
 
 // GET /requests
 export const getRequests = async (req, res) => {
@@ -209,7 +210,7 @@ export const updateRequestStatus = async (req, res) => {
                     include: { location: true }
                 });
                 if (!partnerUserLocation) throw new Error("Lokasi partner tidak ditemukan");
-                
+
                 const destinationLocationId = partnerUserLocation.locationId;
 
                 // 1. Lock baris lokasi untuk pengecekan kapasitas yang aman dari race condition (Pessimistic Locking)
@@ -218,7 +219,7 @@ export const updateRequestStatus = async (req, res) => {
                 const capacity = locations[0].capacity;
 
                 const currentItemsCount = await tx.item.count({ where: { locationId: destinationLocationId } });
-                
+
                 let incomingItemsCount = 0;
                 for (const reqItem of request.requestItems) {
                     incomingItemsCount += reqItem.allocations.length;
@@ -355,7 +356,7 @@ export const downloadBast = async (req, res) => {
                 processedAt: request.processedAt,
                 completedAt: request.completedAt,
                 requesterName: request.requester?.profile?.nama || request.requester?.username || 'Unknown',
-                generatedByName: deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
+                generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
                 allocations: request.requestItems.flatMap(item =>
                     item.allocations.map(alloc => ({
                         materialNumber: alloc.item?.paNumber || '-',
@@ -372,3 +373,165 @@ export const downloadBast = async (req, res) => {
         res.status(500).json({ message: error.message || 'Internal server error' });
     }
 };
+
+// GET /requests/:id/bast-pdf
+export const downloadBastPdf = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.user;
+
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: {
+                requester: { include: { profile: true } },
+                requestItems: {
+                    include: {
+                        materialCategory: true,
+                        brand: true,
+                        model: true,
+                        allocations: {
+                            include: {
+                                item: {
+                                    include: {
+                                        model: {
+                                            include: {
+                                                brand: true,
+                                                materialCategory: true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                deliveryDocument: {
+                    include: { generatedBy: { include: { profile: true } } }
+                }
+            }
+        });
+
+        if (!request) {
+            return res.status(404).json({ message: 'Request tidak ditemukan' });
+        }
+
+        // Proteksi: Hanya Admin atau Mitra Pemohon yang boleh mengakses BAST
+        if (user.role !== 'ADMIN' && user.id !== request.requesterId) {
+            return res.status(403).json({ message: 'Anda tidak memiliki akses ke dokumen BAST ini' });
+        }
+
+        // Hanya bisa generate BAST untuk status SIAP atau SELESAI
+        if (!['SIAP', 'SELESAI'].includes(request.status)) {
+            return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus SIAP atau SELESAI' });
+        }
+
+        // Auto-create DeliveryDocument jika belum ada
+        let deliveryDocument = request.deliveryDocument;
+        if (!deliveryDocument) {
+            deliveryDocument = await prisma.deliveryDocument.create({
+                data: {
+                    requestId: request.id,
+                    documentNumber: `BAST/REQ/${request.requestNumber}`,
+                    filePath: '',
+                    generatedById: user.id
+                },
+                include: { generatedBy: { include: { profile: true } } }
+            });
+        }
+
+        // Format data to fit BAST template structure
+        const bastData = {
+            id: request.id,
+            requestNumber: request.requestNumber,
+            status: request.status,
+            notes: request.notes,
+            requestedAt: request.requestedAt,
+            processedAt: request.processedAt,
+            completedAt: request.completedAt,
+            requesterName: request.requester?.profile?.nama || request.requester?.username || 'Unknown',
+            picName: request.requester?.profile?.picName || null,
+            generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
+            allocations: request.requestItems.flatMap(item =>
+                item.allocations.map(alloc => ({
+                    materialNumber: alloc.item?.paNumber || '-',
+                    materialName: `${item.materialCategory?.nama || ''} ${item.brand?.nama || ''}`.trim(),
+                    serialNumber: alloc.item?.serialNumber || '-',
+                    quantity: 1,
+                    unit: 'Unit'
+                }))
+            )
+        };
+
+        if (deliveryDocument.kpSignedById) {
+            const kpUser = await prisma.user.findUnique({ where: { id: deliveryDocument.kpSignedById }, include: { profile: true } });
+            bastData.kpSignatureUrl = kpUser?.profile?.picSignatureUrl || null;
+        }
+        if (deliveryDocument.picSignedById) {
+            const picUser = await prisma.user.findUnique({ where: { id: deliveryDocument.picSignedById }, include: { profile: true } });
+            bastData.picSignatureUrl = picUser?.profile?.picSignatureUrl || null;
+            bastData.picName = picUser?.profile?.picName || null;
+        }
+
+        const pdfStream = await generateBastPdfStream(bastData);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename=BAST-${request.requestNumber}.pdf`);
+
+        pdfStream.pipe(res);
+        pdfStream.end();
+    } catch (error) {
+        console.error('Error in downloadBastPdf:', error);
+        res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+};
+
+// POST /requests/:id/sign-bast
+export const signBast = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.user;
+
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: { deliveryDocument: true }
+        });
+
+        if (!request) {
+            return res.status(404).json({ message: 'Request tidak ditemukan' });
+        }
+
+        let deliveryDocument = request.deliveryDocument;
+        if (!deliveryDocument) {
+            deliveryDocument = await prisma.deliveryDocument.create({
+                data: {
+                    requestId: request.id,
+                    documentNumber: `BAST/REQ/${request.requestNumber}`,
+                    filePath: '',
+                    generatedById: user.id
+                }
+            });
+        }
+
+        const now = new Date();
+        const updateData = {};
+
+        if (user.role === 'ADMIN') {
+            updateData.kpSignedAt = now;
+            updateData.kpSignedById = user.id;
+        } else if (user.role === 'MITRA') {
+            updateData.picSignedAt = now;
+            updateData.picSignedById = user.id;
+        }
+
+        const updatedDocument = await prisma.deliveryDocument.update({
+            where: { id: deliveryDocument.id },
+            data: updateData
+        });
+
+        res.json({ message: 'BAST signed successfully', document: updatedDocument });
+    } catch (error) {
+        console.error('Error in signBast:', error);
+        res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+};
+

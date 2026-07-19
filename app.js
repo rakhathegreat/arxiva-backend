@@ -13,6 +13,7 @@ import locationRoutes from './src/routes/location.routes.js';
 import itemRoutes from './src/routes/item.routes.js';
 import transactionRoutes from './src/routes/transaction.routes.js';
 import requestRoutes from './src/routes/request.routes.js';
+import signatureSessionRoutes from './src/routes/signatureSession.routes.js';
 
 
 const app = express();
@@ -27,7 +28,8 @@ app.use(cors({
 }));
 
 // Middleware
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Swagger documentation
 setupSwagger(app, PORT);
@@ -43,6 +45,7 @@ app.use("/locations", locationRoutes);
 app.use("/items", itemRoutes);
 app.use("/transactions", transactionRoutes);
 app.use("/requests", requestRoutes);
+app.use("/signature-session", signatureSessionRoutes);
 
 // Start the server
 app.listen(PORT, HOST, () => {

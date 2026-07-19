@@ -1,5 +1,5 @@
 import express from 'express';
-import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast } from '../controllers/request.controller.js';
+import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, signBast } from '../controllers/request.controller.js';
 import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -136,5 +136,25 @@ router.post('/:id/allocate', roleMiddleware(['ADMIN']), allocateItems);
  *     description: Securely download BAST document (Admin or Requester)
  */
 router.get('/:id/bast', downloadBast);
+
+/**
+ * @swagger
+ * /requests/{id}/bast-pdf:
+ *   get:
+ *     tags: [Requests]
+ *     summary: Generate and download BAST PDF document
+ *     description: Securely generate and download BAST document as PDF (Admin or Requester)
+ */
+router.get('/:id/bast-pdf', downloadBastPdf);
+
+/**
+ * @swagger
+ * /requests/{id}/sign-bast:
+ *   post:
+ *     tags: [Requests]
+ *     summary: Sign BAST document
+ *     description: Sign the BAST document by adding the current user's profile signature
+ */
+router.post('/:id/sign-bast', signBast);
 
 export default router;

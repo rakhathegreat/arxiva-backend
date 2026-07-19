@@ -15,6 +15,7 @@ export const login = async (req, res) => {
 
         const user = await prisma.user.findUnique({
             where: { username },
+            include: { profile: true }
         });
 
         if (!user) {
@@ -35,6 +36,7 @@ export const login = async (req, res) => {
                 id: user.id,
                 username: user.username,
                 role: user.role,
+                profile: user.profile || null,
             },
             token,
         });
@@ -45,13 +47,28 @@ export const login = async (req, res) => {
 };
 
 export const me = async (req, res) => {
-    res.json({
-        user: {
-            id: req.user.id,
-            username: req.user.username,
-            role: req.user.role
+    try {
+        const user = await prisma.user.findUnique({
+            where: { id: req.user.id },
+            include: { profile: true }
+        });
+        
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
         }
-    });
+
+        res.json({
+            user: {
+                id: user.id,
+                username: user.username,
+                role: user.role,
+                profile: user.profile || null,
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching me:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
 };
 
 const oauth2Client = new google.auth.OAuth2(

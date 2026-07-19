@@ -25,7 +25,7 @@ export const getUsers = async (req, res) => {
 // POST /users
 export const createUser = async (req, res) => {
     try {
-        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson } = req.body;
+        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson, picName, picSignatureUrl } = req.body;
 
         if (!username || !password) {
             return res.status(400).json({ message: 'Username and password are required' });
@@ -61,7 +61,9 @@ export const createUser = async (req, res) => {
                             alamat: address || alamat || '-',
                             code: code || '-',
                             partnerType: partnerType || 'Supplier',
-                            contactPerson: contactPerson || '-'
+                            contactPerson: contactPerson || '-',
+                            picName: picName || null,
+                            picSignatureUrl: picSignatureUrl || null
                         }
                     }
                 },
@@ -110,7 +112,7 @@ export const createUser = async (req, res) => {
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson } = req.body;
+        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson, picName, picSignatureUrl } = req.body;
 
         const user = await prisma.user.findUnique({ where: { id }, include: { profile: true } });
         if (!user) {
@@ -135,6 +137,8 @@ export const updateUser = async (req, res) => {
         if (code !== undefined) profileData.code = code;
         if (partnerType !== undefined) profileData.partnerType = partnerType;
         if (contactPerson !== undefined) profileData.contactPerson = contactPerson;
+        if (picName !== undefined) profileData.picName = picName;
+        if (picSignatureUrl !== undefined) profileData.picSignatureUrl = picSignatureUrl;
 
         if (Object.keys(profileData).length > 0) {
             if (user.profile) {
@@ -150,7 +154,9 @@ export const updateUser = async (req, res) => {
                         alamat: profileData.alamat || '-',
                         code: profileData.code || '-',
                         partnerType: profileData.partnerType || 'Supplier',
-                        contactPerson: profileData.contactPerson || '-'
+                        contactPerson: profileData.contactPerson || '-',
+                        picName: profileData.picName || null,
+                        picSignatureUrl: profileData.picSignatureUrl || null
                     }
                 };
             }

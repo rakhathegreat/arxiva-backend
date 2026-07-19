@@ -77,6 +77,12 @@ enum RequestStatus {
   DIBATALKAN /// Cancelled by the requester
 }
 
+/// Status for a signature session captured via mobile QR
+enum SessionStatus {
+  PENDING
+  COMPLETED
+}
+
 // -----------------------------------------------------------------------------
 // MODELS
 // -----------------------------------------------------------------------------
@@ -120,6 +126,8 @@ model UserProfile {
   code          String? /// Unique partner identification code
   partnerType   String?
   contactPerson String?
+  picName       String?
+  picSignatureUrl String? @db.Text
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -448,6 +456,21 @@ model DeliveryDocument {
   generatedAt DateTime @default(now())
 
   signedAt DateTime?
+  kpSignedAt DateTime?
+  kpSignedById String?
+  picSignedAt DateTime?
+  picSignedById String?
+  finalFilePath String?
 
   createdAt DateTime @default(now())
+}
+
+/// Temporary session for mobile QR code signature capture
+model SignatureSession {
+  id           String        @id @default(uuid())
+  status       SessionStatus @default(PENDING)
+  signatureUrl String?       @db.Text
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }
