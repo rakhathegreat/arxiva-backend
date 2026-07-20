@@ -19,6 +19,15 @@ const fonts = {
 
 pdfmake.setFonts(fonts);
 
+// Set explicit access policies to silence pdfmake security warnings 
+// regarding SSRF/LFI, since we only use Base64 Data URIs.
+pdfmake.setUrlAccessPolicy(() => true);
+if (typeof pdfmake.setLocalAccessPolicy === 'function') {
+    pdfmake.setLocalAccessPolicy(() => true);
+} else {
+    pdfmake.localAccessPolicy = () => true;
+}
+
 function formatTanggalBAST(isoDateString) {
     if (!isoDateString) return '-';
     const date = new Date(isoDateString);
