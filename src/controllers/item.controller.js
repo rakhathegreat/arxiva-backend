@@ -44,8 +44,9 @@ async function safeGetOrCreateMaterialModel(nama, materialCategoryId, brandId) {
     });
     if (!model) {
         try {
+            const generatedCode = nama.replace(/\s+/g, '-').substring(0, 10).toUpperCase() + '-' + Math.floor(Math.random() * 10000);
             model = await prisma.materialModel.create({
-                data: { nama, materialCategoryId, brandId }
+                data: { nama, code: generatedCode, materialCategoryId, brandId }
             });
         } catch (error) {
             if (error.code === 'P2002') {
@@ -141,6 +142,7 @@ export const getItems = async (req, res) => {
                 kategori: item.model?.materialCategory?.nama || "-",
                 merek: item.model?.brand?.nama || "-",
                 tipe: item.model?.nama || "-",
+                model: item.model,
                 status: statusUnit,
                 lokasiPenyimpanan,
                 tanggalMasuk: item.entryDate ? item.entryDate.toISOString().slice(0, 10) : item.createdAt.toISOString().slice(0, 10),

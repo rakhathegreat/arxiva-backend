@@ -154,7 +154,6 @@ export const createTransaction = async (req, res) => {
         const newTransaction = await prisma.itemMutation.create({
             data: {
                 id: id || undefined,
-                nomor,
                 mutationNumber,
                 type,
                 itemId: item.id,

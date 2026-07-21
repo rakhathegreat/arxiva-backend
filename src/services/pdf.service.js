@@ -170,7 +170,7 @@ const getBastDocDefinition = (data) => {
             {
                 table: {
                     headerRows: 1,
-                    widths: [20, 90, '*', 35, 35, 90, 30],
+                    widths: [20, 70, '*', 35, 35, 90, 30],
                     body: tableBody
                 },
                 margin: [0, 0, 0, 16]
@@ -188,8 +188,8 @@ const getBastDocDefinition = (data) => {
                         width: '*',
                         stack: [
                             { text: 'Pihak Pertama', style: 'signatureRole', alignment: 'center' },
-                            kpSignatureUrl 
-                                ? { image: kpSignatureUrl, width: 80, alignment: 'center', margin: [0, 5, 0, 5] }
+                            kpSignatureUrl
+                                ? { image: kpSignatureUrl, width: 80, alignment: 'center', margin: [0, 15, 0, 15] }
                                 : { text: ' ', margin: [0, 30, 0, 30], alignment: 'center' },
                             { text: generatedByName || 'Admin', style: 'signatureName', alignment: 'center' }
                         ]
@@ -238,12 +238,12 @@ const getBastDocDefinition = (data) => {
                 italic: true
             },
             tableHeader: {
-                fontSize: 9,
+                fontSize: 8,
                 bold: true,
                 fillColor: '#F3F4F6'
             },
             tableCell: {
-                fontSize: 9
+                fontSize: 8
             },
             tableCellEmpty: {
                 fontSize: 9,

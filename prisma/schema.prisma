@@ -132,25 +132,11 @@ model UserProfile {
   updatedAt     DateTime @updatedAt
 }
 
-/// Master reference for material types (e.g., ONT, Kabel).
-model MaterialType {
-  id   Int    @id @default(autoincrement())
-  nama String @unique
-
-  categories MaterialCategory[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
 /// Master category for grouping related items (e.g., Laptops, Monitors).
 model MaterialCategory {
   id Int @id @default(autoincrement())
 
   nama   String
-  
-  typeId Int
-  type   MaterialType @relation(fields: [typeId], references: [id])
 
   safetyStock Int @default(0) /// Minimum stock threshold before low stock alert
 
@@ -180,6 +166,7 @@ model Brand {
 
 model MaterialModel {
   id   Int    @id @default(autoincrement())
+  code String @unique
   nama String @unique
 
   materialCategoryId Int

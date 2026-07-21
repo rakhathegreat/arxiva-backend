@@ -27,6 +27,8 @@ CREATE TABLE `UserProfile` (
     `code` VARCHAR(191) NULL,
     `partnerType` VARCHAR(191) NULL,
     `contactPerson` VARCHAR(191) NULL,
+    `picName` VARCHAR(191) NULL,
+    `picSignatureUrl` TEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
@@ -35,21 +37,9 @@ CREATE TABLE `UserProfile` (
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- CreateTable
-CREATE TABLE `MaterialType` (
-    `id` INTEGER NOT NULL AUTO_INCREMENT,
-    `nama` VARCHAR(191) NOT NULL,
-    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-    `updatedAt` DATETIME(3) NOT NULL,
-
-    UNIQUE INDEX `MaterialType_nama_key`(`nama`),
-    PRIMARY KEY (`id`)
-) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
--- CreateTable
 CREATE TABLE `MaterialCategory` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
     `nama` VARCHAR(191) NOT NULL,
-    `typeId` INTEGER NOT NULL,
     `safetyStock` INTEGER NOT NULL DEFAULT 0,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
@@ -74,12 +64,14 @@ CREATE TABLE `Brand` (
 -- CreateTable
 CREATE TABLE `MaterialModel` (
     `id` INTEGER NOT NULL AUTO_INCREMENT,
+    `code` VARCHAR(191) NOT NULL,
     `nama` VARCHAR(191) NOT NULL,
     `materialCategoryId` INTEGER NOT NULL,
     `brandId` INTEGER NOT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `updatedAt` DATETIME(3) NOT NULL,
 
+    UNIQUE INDEX `MaterialModel_code_key`(`code`),
     UNIQUE INDEX `MaterialModel_nama_key`(`nama`),
     INDEX `MaterialModel_brandId_idx`(`brandId`),
     INDEX `MaterialModel_materialCategoryId_idx`(`materialCategoryId`),
@@ -253,6 +245,11 @@ CREATE TABLE `DeliveryDocument` (
     `generatedById` VARCHAR(191) NOT NULL,
     `generatedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     `signedAt` DATETIME(3) NULL,
+    `kpSignedAt` DATETIME(3) NULL,
+    `kpSignedById` VARCHAR(191) NULL,
+    `picSignedAt` DATETIME(3) NULL,
+    `picSignedById` VARCHAR(191) NULL,
+    `finalFilePath` VARCHAR(191) NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 
     UNIQUE INDEX `DeliveryDocument_requestId_key`(`requestId`),
@@ -260,11 +257,20 @@ CREATE TABLE `DeliveryDocument` (
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- AddForeignKey
-ALTER TABLE `UserProfile` ADD CONSTRAINT `UserProfile_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
+-- CreateTable
+CREATE TABLE `SignatureSession` (
+    `id` VARCHAR(191) NOT NULL,
+    `status` ENUM('PENDING', 'COMPLETED') NOT NULL DEFAULT 'PENDING',
+    `signatureUrl` TEXT NULL,
+    `expiresAt` DATETIME(3) NOT NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 -- AddForeignKey
-ALTER TABLE `MaterialCategory` ADD CONSTRAINT `MaterialCategory_typeId_fkey` FOREIGN KEY (`typeId`) REFERENCES `MaterialType`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE `UserProfile` ADD CONSTRAINT `UserProfile_userId_fkey` FOREIGN KEY (`userId`) REFERENCES `User`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE `MaterialModel` ADD CONSTRAINT `MaterialModel_materialCategoryId_fkey` FOREIGN KEY (`materialCategoryId`) REFERENCES `MaterialCategory`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -343,3 +349,4 @@ ALTER TABLE `DeliveryDocument` ADD CONSTRAINT `DeliveryDocument_requestId_fkey` 
 
 -- AddForeignKey
 ALTER TABLE `DeliveryDocument` ADD CONSTRAINT `DeliveryDocument_generatedById_fkey` FOREIGN KEY (`generatedById`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
+

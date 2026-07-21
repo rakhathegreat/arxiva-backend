@@ -42,7 +42,7 @@ export const getMaterialModelById = async (req, res) => {
 // POST /material-models
 export const createMaterialModel = async (req, res) => {
     try {
-        const { nama, materialCategoryId, brandId } = req.body;
+        const { nama, materialCategoryId, brandId, code } = req.body;
 
         if (!nama || !materialCategoryId || !brandId) {
             return res.status(400).json({ message: 'Nama, materialCategoryId, and brandId are required' });
@@ -72,9 +72,12 @@ export const createMaterialModel = async (req, res) => {
             return res.status(400).json({ message: 'Material model name already exists' });
         }
 
+        const generatedCode = code || (nama.replace(/\s+/g, '-').substring(0, 10).toUpperCase() + '-' + Math.floor(Math.random() * 10000));
+
         const newModel = await prisma.materialModel.create({
             data: {
                 nama,
+                code: generatedCode,
                 materialCategoryId: parseInt(materialCategoryId),
                 brandId: parseInt(brandId)
             },

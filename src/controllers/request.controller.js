@@ -124,35 +124,77 @@ export const createRequest = async (req, res) => {
 export const allocateItems = async (req, res) => {
     try {
         const { id } = req.params;
-        const { requestItemId, itemIds } = req.body;
+        const { itemIds } = req.body;
         const user = req.user;
 
         if (user.role !== 'ADMIN') {
             return res.status(403).json({ message: 'Hanya admin yang dapat mengalokasikan barang' });
         }
 
-        const request = await prisma.request.findUnique({ where: { id } });
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: { requestItems: true }
+        });
+
         if (!request || (request.status !== 'DISETUJUI' && request.status !== 'SIAP')) {
             return res.status(400).json({ message: 'Request tidak valid atau belum disetujui' });
         }
 
         await prisma.$transaction(async (tx) => {
+            // Reset existing allocations for this request to make this operation idempotent
+            const requestItemIds = request.requestItems.map(ri => ri.id);
+            if (requestItemIds.length > 0) {
+                await tx.requestAllocation.deleteMany({
+                    where: { requestItemId: { in: requestItemIds } }
+                });
+                
+                await tx.requestItem.updateMany({
+                    where: { id: { in: requestItemIds } },
+                    data: { fulfilledQuantity: 0 }
+                });
+
+                request.requestItems.forEach(ri => ri.fulfilledQuantity = 0);
+            }
+
             for (const itemId of itemIds) {
-                const item = await tx.item.findUnique({ where: { id: itemId } });
+                const item = await tx.item.findUnique({
+                    where: { id: itemId },
+                    include: { model: true }
+                });
+
                 if (!item || item.status !== 'tersedia') {
                     throw new Error(`Item ${itemId} tidak tersedia atau tidak ada.`);
                 }
 
+                // Temukan requestItem yang cocok berdasarkan kategori
+                let reqItem = request.requestItems.find(ri => ri.materialCategoryId === item.model.materialCategoryId);
+
+                // Jika tidak ada, buat RequestItem baru (Auto-inject)
+                if (!reqItem) {
+                    reqItem = await tx.requestItem.create({
+                        data: {
+                            requestId: id,
+                            materialCategoryId: item.model.materialCategoryId,
+                            brandId: item.model.brandId,
+                            modelId: item.model.id,
+                            quantity: 0, // 0 karena ini tambahan di luar wishlist awal
+                            fulfilledQuantity: 0
+                        }
+                    });
+                    // Tambahkan ke array agar tidak dibuat berulang kali untuk barang sejenis
+                    request.requestItems.push(reqItem);
+                }
+
                 await tx.requestAllocation.create({
                     data: {
-                        requestItemId,
+                        requestItemId: reqItem.id,
                         itemId,
                         allocatedById: user.id
                     }
                 });
 
                 await tx.requestItem.update({
-                    where: { id: requestItemId },
+                    where: { id: reqItem.id },
                     data: { fulfilledQuantity: { increment: 1 } }
                 });
             }
@@ -359,8 +401,8 @@ export const downloadBast = async (req, res) => {
                 generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
                 allocations: request.requestItems.flatMap(item =>
                     item.allocations.map(alloc => ({
-                        materialNumber: alloc.item?.paNumber || '-',
-                        materialName: `${item.materialCategory?.nama || ''} ${item.brand?.nama || ''}`.trim(),
+                        materialNumber: alloc.item?.model?.code || '-',
+                        materialName: alloc.item?.model?.nama || '-',
                         serialNumber: alloc.item?.serialNumber || '-',
                         quantity: 1,
                         unit: 'Unit'
@@ -453,8 +495,8 @@ export const downloadBastPdf = async (req, res) => {
             generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
             allocations: request.requestItems.flatMap(item =>
                 item.allocations.map(alloc => ({
-                    materialNumber: alloc.item?.paNumber || '-',
-                    materialName: `${item.materialCategory?.nama || ''} ${item.brand?.nama || ''}`.trim(),
+                    materialNumber: alloc.item?.model?.code || '-',
+                    materialName: alloc.item?.model?.nama || '-',
                     serialNumber: alloc.item?.serialNumber || '-',
                     quantity: 1,
                     unit: 'Unit'

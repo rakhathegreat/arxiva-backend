@@ -3,9 +3,7 @@ import prisma from '../utils/prisma.js';
 // GET /categories
 export const getCategories = async (req, res) => {
     try {
-        const categories = await prisma.materialCategory.findMany({
-            include: { type: true }
-        });
+        const categories = await prisma.materialCategory.findMany();
         res.json(categories);
     } catch (error) {
         console.error('Error in getCategories:', error);
@@ -18,8 +16,7 @@ export const getCategoryById = async (req, res) => {
     try {
         const { id } = req.params;
         const category = await prisma.materialCategory.findUnique({
-            where: { id: parseInt(id) },
-            include: { type: true }
+            where: { id: parseInt(id) }
         });
 
         if (!category) {
@@ -36,24 +33,17 @@ export const getCategoryById = async (req, res) => {
 // POST /categories
 export const createCategory = async (req, res) => {
     try {
-        const { nama, typeId, safetyStock } = req.body;
+        const { nama, safetyStock } = req.body;
 
-        if (!nama || !typeId) {
-            return res.status(400).json({ message: 'Nama and typeId are required' });
-        }
-
-        const typeExists = await prisma.materialType.findUnique({ where: { id: parseInt(typeId) } });
-        if (!typeExists) {
-            return res.status(400).json({ message: 'Material Type not found' });
+        if (!nama) {
+            return res.status(400).json({ message: 'Nama is required' });
         }
 
         const newCategory = await prisma.materialCategory.create({
             data: {
                 nama,
-                typeId: parseInt(typeId),
                 safetyStock: safetyStock || 0
-            },
-            include: { type: true }
+            }
         });
 
         res.status(201).json({
@@ -70,7 +60,7 @@ export const createCategory = async (req, res) => {
 export const updateCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, typeId, safetyStock } = req.body;
+        const { nama, safetyStock } = req.body;
 
         const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
@@ -83,18 +73,10 @@ export const updateCategory = async (req, res) => {
         const updateData = {};
         if (nama) updateData.nama = nama;
         if (safetyStock !== undefined) updateData.safetyStock = safetyStock;
-        if (typeId) {
-            const typeExists = await prisma.materialType.findUnique({ where: { id: parseInt(typeId) } });
-            if (!typeExists) {
-                return res.status(400).json({ message: 'Material Type not found' });
-            }
-            updateData.typeId = parseInt(typeId);
-        }
 
         const updatedCategory = await prisma.materialCategory.update({
             where: { id: parseInt(id) },
-            data: updateData,
-            include: { type: true }
+            data: updateData
         });
 
         res.json({
