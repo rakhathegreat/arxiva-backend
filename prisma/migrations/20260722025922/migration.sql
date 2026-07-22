@@ -349,4 +349,3 @@ ALTER TABLE `DeliveryDocument` ADD CONSTRAINT `DeliveryDocument_requestId_fkey` 
 
 -- AddForeignKey
 ALTER TABLE `DeliveryDocument` ADD CONSTRAINT `DeliveryDocument_generatedById_fkey` FOREIGN KEY (`generatedById`) REFERENCES `User`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE;
-
