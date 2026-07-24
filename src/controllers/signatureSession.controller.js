@@ -293,3 +293,18 @@ export const submitSignature = async (req, res) => {
         res.status(500).json({ message: 'Internal server error' });
     }
 };
+
+// GET /signature-session/:id/mobile
+export const renderMobileSignPage = async (req, res) => {
+    try {
+        const filePath = path.resolve(__dirname, '../views/mobile-sign.html');
+        if (!fs.existsSync(filePath)) {
+            return res.status(404).send('View file not found');
+        }
+        res.sendFile(filePath);
+    } catch (error) {
+        console.error('Error rendering mobile sign page:', error);
+        res.status(500).send('Internal server error');
+    }
+};
+
