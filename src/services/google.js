@@ -36,4 +36,72 @@ export const getGoogleServices = async () => {
     return { sheets, drive };
 };
 
+/**
+ * Uploads a local PDF file to Google Drive under folder "BAST ARXIVA".
+ * Returns { driveFileId, driveViewUrl }.
+ */
+export const uploadBastToDrive = async ({ absoluteFilePath, fileName }) => {
+    try {
+        const { drive } = await getGoogleServices();
+
+        // 1. Find or Create "BAST ARXIVA" Folder
+        let folderId = null;
+        const searchFolder = await drive.files.list({
+            q: "name = 'BAST ARXIVA' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+            fields: 'files(id, name)',
+            spaces: 'drive'
+        });
+
+        if (searchFolder.data.files && searchFolder.data.files.length > 0) {
+            folderId = searchFolder.data.files[0].id;
+        } else {
+            const createFolder = await drive.files.create({
+                resource: {
+                    name: 'BAST ARXIVA',
+                    mimeType: 'application/vnd.google-apps.folder'
+                },
+                fields: 'id'
+            });
+            folderId = createFolder.data.id;
+        }
+
+        // 2. Upload PDF file
+        const fileMetadata = {
+            name: fileName,
+            parents: folderId ? [folderId] : []
+        };
+        const media = {
+            mimeType: 'application/pdf',
+            body: fs.createReadStream(absoluteFilePath)
+        };
+
+        const uploadedFile = await drive.files.create({
+            requestBody: fileMetadata,
+            media: media,
+            fields: 'id, webViewLink'
+        });
+
+        const driveFileId = uploadedFile.data.id;
+        let driveViewUrl = uploadedFile.data.webViewLink || `https://drive.google.com/file/d/${driveFileId}/view`;
+
+        // 3. Set file permissions (best-effort)
+        try {
+            await drive.permissions.create({
+                fileId: driveFileId,
+                requestBody: {
+                    role: 'reader',
+                    type: 'anyone'
+                }
+            });
+        } catch (permErr) {
+            console.warn("Could not set Google Drive public permission:", permErr.message);
+        }
+
+        return { driveFileId, driveViewUrl };
+    } catch (err) {
+        console.error("Error uploading BAST to Google Drive:", err.message);
+        return { driveFileId: null, driveViewUrl: null, error: err.message };
+    }
+};
+
 export { sheets, drive, oauth2Client };

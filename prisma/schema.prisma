@@ -435,7 +435,10 @@ model DeliveryDocument {
 
   documentNumber String @unique
 
-  filePath String /// Remote or local path to the generated PDF
+  filePath           String? /// Local path to unsigned BAST draft PDF
+  finalFilePath      String? /// Local path to signed BAST final PDF
+  driveFileId        String? /// File ID in Google Drive
+  driveViewUrl       String? @db.Text /// Shared view URL in Google Drive
 
   generatedById String
   generatedBy   User   @relation("GeneratedDocument", fields: [generatedById], references: [id])
@@ -445,9 +448,13 @@ model DeliveryDocument {
   signedAt DateTime?
   kpSignedAt DateTime?
   kpSignedById String?
+  kpName String?
+  kpSignatureUrl String? @db.Text
   picSignedAt DateTime?
   picSignedById String?
-  finalFilePath String?
+  signerName String?
+  signerSignatureUrl String? @db.Text
+  itemsSnapshot String? @db.LongText
 
   createdAt DateTime @default(now())
 }
@@ -457,6 +464,9 @@ model SignatureSession {
   id           String        @id @default(uuid())
   status       SessionStatus @default(PENDING)
   signatureUrl String?       @db.Text
+  signerName   String?
+  requestId    String?
+  userId       String?
   expiresAt    DateTime
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt

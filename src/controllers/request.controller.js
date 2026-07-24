@@ -1,6 +1,12 @@
 import prisma from '../utils/prisma.js';
 import { logMutation } from '../utils/mutation.util.js';
-import { generateBastPdfStream } from '../services/pdf.service.js';
+import { generateBastPdfStream, generateAndSaveBastPdf } from '../services/pdf.service.js';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // GET /requests
 export const getRequests = async (req, res) => {
@@ -13,6 +19,12 @@ export const getRequests = async (req, res) => {
                         materialCategory: true,
                         brand: true,
                         model: true
+                    }
+                },
+                deliveryDocument: {
+                    select: {
+                        kpSignedById: true,
+                        picSignedById: true
                     }
                 }
             },
@@ -36,7 +48,11 @@ export const getRequests = async (req, res) => {
                 brand: item.brand?.nama || "-",
                 model: item.model?.nama || "-",
                 quantity: item.quantity
-            }))
+            })),
+            deliveryDocument: r.deliveryDocument ? {
+                kpSignedById: r.deliveryDocument.kpSignedById,
+                picSignedById: r.deliveryDocument.picSignedById
+            } : null
         }));
 
         res.json(formatted);
@@ -147,7 +163,7 @@ export const allocateItems = async (req, res) => {
                 await tx.requestAllocation.deleteMany({
                     where: { requestItemId: { in: requestItemIds } }
                 });
-                
+
                 await tx.requestItem.updateMany({
                     where: { id: { in: requestItemIds } },
                     data: { fulfilledQuantity: 0 }
@@ -231,6 +247,13 @@ export const updateRequestStatus = async (req, res) => {
             return res.status(404).json({ message: 'Request not found' });
         }
 
+        if (request.status === 'SELESAI') {
+            if (status === 'SELESAI') {
+                return res.json({ message: 'Request sudah SELESAI (Idempotent)', request });
+            }
+            return res.status(400).json({ message: 'Request sudah SELESAI dan dikunci. Data maupun status tidak dapat diubah lagi.' });
+        }
+
         // RBAC Checks
         if (['DISETUJUI', 'SIAP', 'SELESAI', 'DITOLAK'].includes(status) && user.role !== 'ADMIN') {
             return res.status(403).json({ message: 'Hanya admin yang dapat menyetujui, menyiapkan, menyelesaikan, atau menolak request' });
@@ -244,6 +267,95 @@ export const updateRequestStatus = async (req, res) => {
         if (status === 'DISETUJUI') dataToUpdate.approvedAt = now;
         if (status === 'SIAP') dataToUpdate.processedAt = now;
         if (status === 'SELESAI') dataToUpdate.completedAt = now;
+
+        // Auto-generate BAST Draft PDF when status becomes SIAP
+        if (status === 'SIAP') {
+            let adminName = user.profile?.picName || user.profile?.nama || user.username || 'Admin';
+            let adminSigUrl = user.profile?.picSignatureUrl || null;
+
+            if (!adminSigUrl) {
+                const fallbackAdmin = await prisma.userProfile.findFirst({ where: { picSignatureUrl: { not: null } } });
+                if (fallbackAdmin) {
+                    adminSigUrl = fallbackAdmin.picSignatureUrl;
+                    if (!adminName) adminName = fallbackAdmin.picName || fallbackAdmin.nama;
+                }
+            }
+
+            const reqFull = await prisma.request.findUnique({
+                where: { id },
+                include: {
+                    requester: { include: { profile: true } },
+                    requestItems: {
+                        include: {
+                            materialCategory: true,
+                            brand: true,
+                            model: true,
+                            allocations: {
+                                include: {
+                                    item: {
+                                        include: {
+                                            model: { include: { brand: true, materialCategory: true } }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+
+            const itemsSnapshotData = reqFull.requestItems.flatMap(item =>
+                item.allocations.map(alloc => ({
+                    materialNumber: alloc.item?.model?.code || '-',
+                    materialName: alloc.item?.model?.nama || '-',
+                    serialNumber: alloc.item?.serialNumber || '-',
+                    quantity: 1,
+                    unit: 'Unit'
+                }))
+            );
+
+            const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
+
+            const draftBastData = {
+                id: reqFull.id,
+                requestNumber: reqFull.requestNumber,
+                status: 'SIAP',
+                notes: reqFull.notes,
+                requestedAt: reqFull.requestedAt,
+                processedAt: now,
+                completedAt: null,
+                requesterName: ptName,
+                picName: ptName,
+                picSignatureUrl: null, // Unsigned Draft
+                generatedByName: adminName,
+                kpSignatureUrl: adminSigUrl,
+                allocations: itemsSnapshotData
+            };
+
+            const draftFilename = `bast-draft-${reqFull.requestNumber}.pdf`;
+            const { relativeFilePath } = await generateAndSaveBastPdf(draftBastData, draftFilename);
+
+            await prisma.deliveryDocument.upsert({
+                where: { requestId: id },
+                create: {
+                    requestId: id,
+                    documentNumber: `BAST/REQ/${reqFull.requestNumber}`,
+                    filePath: relativeFilePath,
+                    kpName: adminName,
+                    kpSignatureUrl: adminSigUrl,
+                    kpSignedAt: now,
+                    itemsSnapshot: JSON.stringify(itemsSnapshotData),
+                    generatedById: user.id
+                },
+                update: {
+                    filePath: relativeFilePath,
+                    kpName: adminName,
+                    kpSignatureUrl: adminSigUrl,
+                    kpSignedAt: now,
+                    itemsSnapshot: JSON.stringify(itemsSnapshotData)
+                }
+            });
+        }
 
         if (status === 'SELESAI') {
             const updated = await prisma.$transaction(async (tx) => {
@@ -481,7 +593,63 @@ export const downloadBastPdf = async (req, res) => {
             });
         }
 
+        // If static file exists, stream directly for legal immutability
+        if (deliveryDocument.finalFilePath && request.status === 'SELESAI') {
+            const absFinal = path.resolve(__dirname, '../../public', deliveryDocument.finalFilePath.replace(/^\//, ''));
+            if (fs.existsSync(absFinal)) {
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `inline; filename=BAST-FINAL-${request.requestNumber}.pdf`);
+                return fs.createReadStream(absFinal).pipe(res);
+            }
+        } else if (deliveryDocument.filePath) {
+            const absDraft = path.resolve(__dirname, '../../public', deliveryDocument.filePath.replace(/^\//, ''));
+            if (fs.existsSync(absDraft)) {
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `inline; filename=BAST-DRAFT-${request.requestNumber}.pdf`);
+                return fs.createReadStream(absDraft).pipe(res);
+            }
+        }
+
+        // Determine Admin User (Pihak Pertama) Name and Signature from frozen snapshot first
+        let adminName = deliveryDocument.kpName;
+        let adminSigUrl = deliveryDocument.kpSignatureUrl;
+
+        // Fallback ONLY if snapshot was never stored
+        if (!adminName || !adminSigUrl) {
+            const genAdmin = deliveryDocument.generatedBy?.profile;
+            if (!adminName) adminName = genAdmin?.picName || genAdmin?.nama || deliveryDocument.generatedBy?.username || 'Admin';
+            if (!adminSigUrl) adminSigUrl = genAdmin?.picSignatureUrl || null;
+        }
+
+        if (!adminSigUrl || !adminName) {
+            const fallbackAdminProfile = await prisma.userProfile.findFirst({
+                where: { picSignatureUrl: { not: null } }
+            });
+            if (fallbackAdminProfile) {
+                if (!adminSigUrl) adminSigUrl = fallbackAdminProfile.picSignatureUrl;
+                if (!adminName) adminName = fallbackAdminProfile.picName || fallbackAdminProfile.nama;
+            }
+        }
+
+        const ptName = request.requester?.profile?.nama || request.requester?.username || 'PT / Mitra';
+
+        const allocationsData = deliveryDocument.itemsSnapshot
+            ? JSON.parse(deliveryDocument.itemsSnapshot)
+            : request.requestItems.flatMap(item =>
+                item.allocations.map(alloc => ({
+                    materialNumber: alloc.item?.model?.code || '-',
+                    materialName: alloc.item?.model?.nama || '-',
+                    serialNumber: alloc.item?.serialNumber || '-',
+                    quantity: 1,
+                    unit: 'Unit'
+                }))
+            );
+
         // Format data to fit BAST template structure
+        // Pihak Kedua: Uses signerName if signed; otherwise defaults to PT Name (Nama PT / Mitra)
+        const recipientName = deliveryDocument.signerName || ptName;
+        const recipientSigUrl = deliveryDocument.signerSignatureUrl || null;
+
         const bastData = {
             id: request.id,
             requestNumber: request.requestNumber,
@@ -490,29 +658,13 @@ export const downloadBastPdf = async (req, res) => {
             requestedAt: request.requestedAt,
             processedAt: request.processedAt,
             completedAt: request.completedAt,
-            requesterName: request.requester?.profile?.nama || request.requester?.username || 'Unknown',
-            picName: request.requester?.profile?.picName || null,
-            generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
-            allocations: request.requestItems.flatMap(item =>
-                item.allocations.map(alloc => ({
-                    materialNumber: alloc.item?.model?.code || '-',
-                    materialName: alloc.item?.model?.nama || '-',
-                    serialNumber: alloc.item?.serialNumber || '-',
-                    quantity: 1,
-                    unit: 'Unit'
-                }))
-            )
+            requesterName: ptName,
+            picName: recipientName,
+            picSignatureUrl: recipientSigUrl,
+            generatedByName: adminName || 'Admin',
+            kpSignatureUrl: adminSigUrl,
+            allocations: allocationsData
         };
-
-        if (deliveryDocument.kpSignedById) {
-            const kpUser = await prisma.user.findUnique({ where: { id: deliveryDocument.kpSignedById }, include: { profile: true } });
-            bastData.kpSignatureUrl = kpUser?.profile?.picSignatureUrl || null;
-        }
-        if (deliveryDocument.picSignedById) {
-            const picUser = await prisma.user.findUnique({ where: { id: deliveryDocument.picSignedById }, include: { profile: true } });
-            bastData.picSignatureUrl = picUser?.profile?.picSignatureUrl || null;
-            bastData.picName = picUser?.profile?.picName || null;
-        }
 
         const pdfStream = await generateBastPdfStream(bastData);
 
@@ -524,6 +676,72 @@ export const downloadBastPdf = async (req, res) => {
     } catch (error) {
         console.error('Error in downloadBastPdf:', error);
         res.status(500).json({ message: error.message || 'Internal server error' });
+    }
+};
+
+// GET /requests/:id/pdf-draft
+export const downloadBastDraftPdf = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.user;
+
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: { deliveryDocument: true }
+        });
+
+        if (!request) return res.status(404).json({ message: 'Request tidak ditemukan' });
+        if (user.role !== 'ADMIN' && user.id !== request.requesterId) {
+            return res.status(403).json({ message: 'Akses ditolak' });
+        }
+
+        const doc = request.deliveryDocument;
+        if (doc?.filePath) {
+            const absPath = path.resolve(__dirname, '../../public', doc.filePath.replace(/^\//, ''));
+            if (fs.existsSync(absPath)) {
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `inline; filename=BAST-DRAFT-${request.requestNumber}.pdf`);
+                return fs.createReadStream(absPath).pipe(res);
+            }
+        }
+
+        return downloadBastPdf(req, res);
+    } catch (error) {
+        console.error('Error in downloadBastDraftPdf:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+// GET /requests/:id/pdf-signed
+export const downloadBastSignedPdf = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const user = req.user;
+
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: { deliveryDocument: true }
+        });
+
+        if (!request) return res.status(404).json({ message: 'Request tidak ditemukan' });
+        if (user.role !== 'ADMIN' && user.id !== request.requesterId) {
+            return res.status(403).json({ message: 'Akses ditolak' });
+        }
+
+        const doc = request.deliveryDocument;
+        if (doc?.finalFilePath) {
+            const absPath = path.resolve(__dirname, '../../public', doc.finalFilePath.replace(/^\//, ''));
+            if (fs.existsSync(absPath)) {
+                res.setHeader('Content-Type', 'application/pdf');
+                res.setHeader('Content-Disposition', `inline; filename=BAST-FINAL-${request.requestNumber}.pdf`);
+                return fs.createReadStream(absPath).pipe(res);
+            }
+        }
+
+        return downloadBastPdf(req, res);
+    } catch (error) {
+        console.error('Error in downloadBastSignedPdf:', error);
+        res.status(500).json({ message: 'Internal server error' });
     }
 };
 
@@ -570,7 +788,24 @@ export const signBast = async (req, res) => {
             data: updateData
         });
 
-        res.json({ message: 'BAST signed successfully', document: updatedDocument });
+        // Cek apakah kedua TTD sudah lengkap — jika ya, ubah status request ke SELESAI
+        const isFullySigned = !!(updatedDocument.kpSignedById && updatedDocument.picSignedById);
+        let requestStatus = request.status;
+
+        if (isFullySigned) {
+            const updatedRequest = await prisma.request.update({
+                where: { id: request.id },
+                data: { status: 'SELESAI' }
+            });
+            requestStatus = updatedRequest.status;
+        }
+
+        res.json({
+            message: 'BAST signed successfully',
+            document: updatedDocument,
+            isFullySigned,
+            requestStatus
+        });
     } catch (error) {
         console.error('Error in signBast:', error);
         res.status(500).json({ message: error.message || 'Internal server error' });

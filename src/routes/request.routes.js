@@ -1,5 +1,5 @@
 import express from 'express';
-import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, signBast } from '../controllers/request.controller.js';
+import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, downloadBastDraftPdf, downloadBastSignedPdf, signBast } from '../controllers/request.controller.js';
 import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -146,6 +146,8 @@ router.get('/:id/bast', downloadBast);
  *     description: Securely generate and download BAST document as PDF (Admin or Requester)
  */
 router.get('/:id/bast-pdf', downloadBastPdf);
+router.get('/:id/pdf-draft', downloadBastDraftPdf);
+router.get('/:id/pdf-signed', downloadBastSignedPdf);
 
 /**
  * @swagger

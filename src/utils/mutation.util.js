@@ -15,8 +15,12 @@ export async function logMutation(tx, data) {
     const item = await tx.item.findUnique({
         where: { id: data.itemId },
         include: {
-            brand: true,
-            category: true
+            model: {
+                include: {
+                    brand: true,
+                    materialCategory: true
+                }
+            }
         }
     });
 
@@ -38,8 +42,8 @@ export async function logMutation(tx, data) {
             itemId: item.id,
             userId: data.userId,
             serialNumber: item.serialNumber,
-            brand: item.brand.nama,
-            category: item.category.nama,
+            brand: item.model?.brand?.nama || '-',
+            category: item.model?.materialCategory?.nama || '-',
             paNumber: item.paNumber || '',
             originLocationId: data.originLocationId || null,
             destinationLocationId: data.destinationLocationId || null,
@@ -47,3 +51,4 @@ export async function logMutation(tx, data) {
         }
     });
 }
+

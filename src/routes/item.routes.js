@@ -1,6 +1,6 @@
 import express from 'express';
-import { getItems, getItemById, createItem, updateItem, deleteItem } from '../controllers/item.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { getItems, getItemById, getItemHistory, createItem, updateItem, deleteItem } from '../controllers/item.controller.js';
+import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -9,15 +9,19 @@ const router = express.Router();
  * /items:
  *   get:
  *     tags: [Items]
- *     summary: Get all items
- *     description: Retrieve a list of all inventory items.
- *     responses:
- *       200:
- *         description: Items retrieved successfully
- *       500:
- *         description: Internal server error
+ *     summary: Get items with pagination, search, and RBAC
+ *     description: Retrieve items filtered by query parameters and authenticated user role.
  */
-router.get('/', getItems);
+router.get('/', authMiddleware, getItems);
+
+/**
+ * @swagger
+ * /items/{id}/history:
+ *   get:
+ *     tags: [Items]
+ *     summary: Get transaction history for a specific item
+ */
+router.get('/:id/history', authMiddleware, getItemHistory);
 
 /**
  * @swagger
@@ -25,22 +29,8 @@ router.get('/', getItems);
  *   get:
  *     tags: [Items]
  *     summary: Get item by ID
- *     description: Retrieve a single item by its ID.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Item retrieved successfully
- *       404:
- *         description: Item not found
- *       500:
- *         description: Internal server error
  */
-router.get('/:id', getItemById);
+router.get('/:id', authMiddleware, getItemById);
 
 /**
  * @swagger
@@ -48,51 +38,8 @@ router.get('/:id', getItemById);
  *   post:
  *     tags: [Items]
  *     summary: Create item
- *     description: Create a new inventory item.
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [serialNumber, kategori, merek]
- *             properties:
- *               serialNumber:
- *                 type: string
- *                 example: SN-001
- *               kategori:
- *                 type: string
- *                 example: Elektronik
- *               merek:
- *                 type: string
- *                 example: Samsung
- *               status:
- *                 type: string
- *                 example: Tersedia
- *               lokasiPenyimpanan:
- *                 type: string
- *                 example: Gudang A - Level 1
- *               tanggalMasuk:
- *                 type: string
- *                 format: date
- *                 example: 2026-07-02
- *               tanggalKeluar:
- *                 type: string
- *                 format: date
- *                 example: ""
- *               mitra:
- *                 type: string
- *                 example: Mitra A
- *     responses:
- *       201:
- *         description: Item created successfully
- *       400:
- *         description: Invalid request
- *       500:
- *         description: Internal server error
  */
-// Biarkan autentikasi fleksibel jika diperlukan, atau gunakan authMiddleware
-router.post('/', createItem);
+router.post('/', authMiddleware, createItem);
 
 /**
  * @swagger
@@ -100,43 +47,8 @@ router.post('/', createItem);
  *   put:
  *     tags: [Items]
  *     summary: Update item
- *     description: Update an existing inventory item.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               serialNumber:
- *                 type: string
- *                 example: SN-001
- *               kategori:
- *                 type: string
- *                 example: Elektronik
- *               merek:
- *                 type: string
- *                 example: Samsung
- *               status:
- *                 type: string
- *                 example: Diluar
- *     responses:
- *       200:
- *         description: Item updated successfully
- *       400:
- *         description: Invalid request
- *       404:
- *         description: Item not found
- *       500:
- *         description: Internal server error
  */
-router.put('/:id', updateItem);
+router.put('/:id', authMiddleware, updateItem);
 
 /**
  * @swagger
@@ -144,21 +56,7 @@ router.put('/:id', updateItem);
  *   delete:
  *     tags: [Items]
  *     summary: Delete item
- *     description: Delete an existing inventory item.
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Item deleted successfully
- *       404:
- *         description: Item not found
- *       500:
- *         description: Internal server error
  */
-router.delete('/:id', deleteItem);
+router.delete('/:id', authMiddleware, deleteItem);
 
 export default router;

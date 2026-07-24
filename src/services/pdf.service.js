@@ -61,7 +61,7 @@ const getBastDocDefinition = (data) => {
             { text: 'Jumlah', style: 'tableHeader', alignment: 'center' },
             { text: 'Satuan', style: 'tableHeader', alignment: 'center' },
             { text: 'Serial Number', style: 'tableHeader', alignment: 'center' },
-            { text: 'Ket', style: 'tableHeader', alignment: 'center' }
+            // { text: 'Ket', style: 'tableHeader', alignment: 'center' }
         ]
     ];
 
@@ -74,7 +74,7 @@ const getBastDocDefinition = (data) => {
                 { text: (item.quantity || 1).toString(), alignment: 'center', style: 'tableCell' },
                 { text: item.unit || 'Unit', alignment: 'center', style: 'tableCell' },
                 { text: item.serialNumber || '-', alignment: 'center', style: 'tableCell' },
-                { text: '', style: 'tableCell' }
+                // { text: '', style: 'tableCell' }
             ]);
         });
     } else {
@@ -105,6 +105,15 @@ const getBastDocDefinition = (data) => {
                             { text: 'Jl. WR.Supratman No.58 Bandung 40121 - Jawa Barat', style: 'headerAddress', margin: [0, 4, 0, 0] },
                             { text: 'Tel.022-7200262', style: 'headerAddress' }
                         ]
+                    },
+                    {
+                        stack: [
+                            {
+                                image: path.resolve(__dirname, '../../assets/pln icon plus.png'),
+                                width: 150,
+                                alignment: 'right',
+                            }
+                        ]
                     }
                 ],
                 margin: [0, 0, 0, 14]
@@ -134,7 +143,7 @@ const getBastDocDefinition = (data) => {
                         [
                             { text: 'PIHAK Pertama', style: 'normalText' },
                             { text: ':', style: 'normalText' },
-                            { text: 'PLN Icon Plus SBU Regional Jawa Barat', style: 'normalText' }
+                            { text: 'PLN ICON PLUS SBU Regional Jawa Barat', style: 'normalText' }
                         ],
                         [
                             { text: 'PIHAK Kedua', style: 'normalText' },
@@ -170,7 +179,7 @@ const getBastDocDefinition = (data) => {
             {
                 table: {
                     headerRows: 1,
-                    widths: [20, 70, '*', 35, 35, 90, 30],
+                    widths: [20, 70, '*', 35, 35, 90],
                     body: tableBody
                 },
                 margin: [0, 0, 0, 16]
@@ -189,8 +198,8 @@ const getBastDocDefinition = (data) => {
                         stack: [
                             { text: 'Pihak Pertama', style: 'signatureRole', alignment: 'center' },
                             kpSignatureUrl
-                                ? { image: kpSignatureUrl, width: 80, alignment: 'center', margin: [0, 15, 0, 15] }
-                                : { text: ' ', margin: [0, 30, 0, 30], alignment: 'center' },
+                                ? { image: kpSignatureUrl, width: 120, height: 50, alignment: 'center', margin: [0, 10, 0, 10] }
+                                : { text: ' ', margin: [0, 28, 0, 28], alignment: 'center' },
                             { text: generatedByName || 'Admin', style: 'signatureName', alignment: 'center' }
                         ]
                     },
@@ -199,8 +208,8 @@ const getBastDocDefinition = (data) => {
                         stack: [
                             { text: 'Pihak Kedua', style: 'signatureRole', alignment: 'center' },
                             picSignatureUrl
-                                ? { image: picSignatureUrl, width: 80, alignment: 'center', margin: [0, 5, 0, 5] }
-                                : { text: ' ', margin: [0, 30, 0, 30], alignment: 'center' },
+                                ? { image: picSignatureUrl, width: 120, height: 50, alignment: 'center', margin: [0, 10, 0, 10] }
+                                : { text: ' ', margin: [0, 28, 0, 28], alignment: 'center' },
                             { text: picName || requesterName || 'Unknown', style: 'signatureName', alignment: 'center' }
                         ]
                     }
@@ -270,8 +279,27 @@ const getBastDocDefinition = (data) => {
     };
 };
 
+import fs from 'fs';
+
 export const generateBastPdfStream = async (bastData) => {
     const docDefinition = getBastDocDefinition(bastData);
     const pdfDoc = pdfmake.createPdf(docDefinition);
     return await pdfDoc.getStream();
+};
+
+export const generateAndSaveBastPdf = async (bastData, filename) => {
+    const docDefinition = getBastDocDefinition(bastData);
+    const pdfDoc = pdfmake.createPdf(docDefinition);
+    const pdfBuffer = await pdfDoc.getBuffer();
+
+    const uploadDir = path.resolve(__dirname, '../../public/uploads/documents');
+    if (!fs.existsSync(uploadDir)) {
+        fs.mkdirSync(uploadDir, { recursive: true });
+    }
+
+    const absoluteFilePath = path.join(uploadDir, filename);
+    await fs.promises.writeFile(absoluteFilePath, pdfBuffer);
+
+    const relativeFilePath = `/uploads/documents/${filename}`;
+    return { absoluteFilePath, relativeFilePath };
 };

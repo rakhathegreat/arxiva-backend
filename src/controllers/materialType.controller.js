@@ -2,7 +2,15 @@ import prisma from '../utils/prisma.js';
 
 export const getMaterialTypes = async (req, res) => {
     try {
-        const types = await prisma.materialType.findMany();
+        const types = await prisma.materialModel.findMany({
+            include: {
+                brand: true,
+                materialCategory: true,
+                _count: {
+                    select: { items: true }
+                }
+            }
+        });
         res.json(types);
     } catch (error) {
         console.error('Error in getMaterialTypes:', error);
