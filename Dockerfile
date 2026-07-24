@@ -10,6 +10,7 @@ RUN npm install --omit=dev
 
 COPY prisma ./prisma
 COPY src ./src
+COPY assets ./assets
 COPY app.js ./
 
 RUN npx prisma generate
