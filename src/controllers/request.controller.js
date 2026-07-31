@@ -8,6 +8,35 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const processRequestCompletionMutation = async (tx, request, user, destinationLocationId) => {
+    for (const reqItem of request.requestItems) {
+        for (const allocation of reqItem.allocations) {
+            const item = await tx.item.findUnique({ where: { id: allocation.itemId } });
+            const originLocationId = item.locationId;
+
+            // Perbarui barang: ubah status jadi digunakan, pindah ke lokasi partner, ganti pemilik
+            await tx.item.update({
+                where: { id: allocation.itemId },
+                data: {
+                    status: 'digunakan',
+                    locationId: destinationLocationId,
+                    createdById: request.requesterId
+                }
+            });
+
+            // Catat buku besar ledger mutasi
+            await logMutation(tx, {
+                type: 'KELUAR',
+                itemId: allocation.itemId,
+                userId: user.id,
+                originLocationId: originLocationId,
+                destinationLocationId: destinationLocationId,
+                requestId: request.id
+            });
+        }
+    }
+};
+
 // GET /requests
 export const getRequests = async (req, res) => {
     try {
@@ -324,6 +353,7 @@ export const updateRequestStatus = async (req, res) => {
                 requestedAt: reqFull.requestedAt,
                 processedAt: now,
                 completedAt: null,
+                partnerType: reqFull.requester?.profile?.partnerType || 'gangguan',
                 requesterName: ptName,
                 picName: ptName,
                 picSignatureUrl: null, // Unsigned Draft
@@ -390,32 +420,7 @@ export const updateRequestStatus = async (req, res) => {
                 });
 
                 // 2. Terapkan pemindahan barang dan log mutasi
-                for (const reqItem of request.requestItems) {
-                    for (const allocation of reqItem.allocations) {
-                        const item = await tx.item.findUnique({ where: { id: allocation.itemId } });
-                        const originLocationId = item.locationId;
-
-                        // Perbarui barang: ubah status jadi digunakan, pindah ke lokasi partner, ganti pemilik
-                        await tx.item.update({
-                            where: { id: allocation.itemId },
-                            data: {
-                                status: 'digunakan',
-                                locationId: destinationLocationId,
-                                createdById: request.requesterId
-                            }
-                        });
-
-                        // Catat buku besar ledger mutasi
-                        await logMutation(tx, {
-                            type: 'KELUAR',
-                            itemId: allocation.itemId,
-                            userId: user.id,
-                            originLocationId: originLocationId,
-                            destinationLocationId: destinationLocationId,
-                            requestId: request.id
-                        });
-                    }
-                }
+                await processRequestCompletionMutation(tx, request, user, destinationLocationId);
                 return updatedReq;
             });
             return res.json({ message: 'Request status updated and items mutated', request: updated });
@@ -646,8 +651,10 @@ export const downloadBastPdf = async (req, res) => {
             );
 
         // Format data to fit BAST template structure
+        const partnerType = request.requester?.profile?.partnerType || 'gangguan';
+        
         // Pihak Kedua: Uses signerName if signed; otherwise defaults to PT Name (Nama PT / Mitra)
-        const recipientName = deliveryDocument.signerName || ptName;
+        const recipientName = deliveryDocument.signerName || '( ........................................ )';
         const recipientSigUrl = deliveryDocument.signerSignatureUrl || null;
 
         const bastData = {
@@ -658,11 +665,12 @@ export const downloadBastPdf = async (req, res) => {
             requestedAt: request.requestedAt,
             processedAt: request.processedAt,
             completedAt: request.completedAt,
+            partnerType,
             requesterName: ptName,
-            picName: recipientName,
-            picSignatureUrl: recipientSigUrl,
-            generatedByName: adminName || 'Admin',
+            kpName: adminName || 'Admin',
             kpSignatureUrl: adminSigUrl,
+            signerName: recipientName,
+            signerSignatureUrl: recipientSigUrl,
             allocations: allocationsData
         };
 
@@ -753,7 +761,10 @@ export const signBast = async (req, res) => {
 
         const request = await prisma.request.findUnique({
             where: { id },
-            include: { deliveryDocument: true }
+            include: { 
+                deliveryDocument: true,
+                requestItems: { include: { allocations: true } }
+            }
         });
 
         if (!request) {
@@ -793,9 +804,38 @@ export const signBast = async (req, res) => {
         let requestStatus = request.status;
 
         if (isFullySigned) {
-            const updatedRequest = await prisma.request.update({
-                where: { id: request.id },
-                data: { status: 'SELESAI' }
+            const updatedRequest = await prisma.$transaction(async (tx) => {
+                const partnerUserLocation = await tx.userLocation.findFirst({
+                    where: { userId: request.requesterId },
+                    include: { location: true }
+                });
+                if (!partnerUserLocation) throw new Error("Lokasi partner tidak ditemukan");
+
+                const destinationLocationId = partnerUserLocation.locationId;
+
+                const locations = await tx.$queryRaw`SELECT capacity FROM Location WHERE id = ${destinationLocationId} FOR UPDATE`;
+                if (!locations || locations.length === 0) throw new Error("Lokasi tujuan tidak valid");
+                const capacity = locations[0].capacity;
+
+                const currentItemsCount = await tx.item.count({ where: { locationId: destinationLocationId } });
+
+                let incomingItemsCount = 0;
+                for (const reqItem of request.requestItems) {
+                    incomingItemsCount += reqItem.allocations.length;
+                }
+
+                if (capacity > 0 && currentItemsCount + incomingItemsCount > capacity) {
+                    throw new Error("Kapasitas lokasi tidak mencukupi untuk menampung alokasi barang ini");
+                }
+
+                const updatedReq = await tx.request.update({
+                    where: { id: request.id },
+                    data: { status: 'SELESAI' }
+                });
+
+                await processRequestCompletionMutation(tx, request, user, destinationLocationId);
+
+                return updatedReq;
             });
             requestStatus = updatedRequest.status;
         }

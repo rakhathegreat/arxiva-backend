@@ -14,6 +14,8 @@ import itemRoutes from './src/routes/item.routes.js';
 import transactionRoutes from './src/routes/transaction.routes.js';
 import requestRoutes from './src/routes/request.routes.js';
 import signatureSessionRoutes from './src/routes/signatureSession.routes.js';
+import dashboardRoutes from './src/routes/dashboard.routes.js';
+import notificationRoutes from './src/routes/notification.routes.js';
 
 
 const app = express();
@@ -46,6 +48,8 @@ app.use("/items", itemRoutes);
 app.use("/transactions", transactionRoutes);
 app.use("/requests", requestRoutes);
 app.use("/signature-session", signatureSessionRoutes);
+app.use("/dashboard", dashboardRoutes);
+app.use("/notifications", notificationRoutes);
 
 // Start the server
 app.listen(PORT, HOST, () => {

@@ -48,7 +48,7 @@ function formatTanggalBAST(isoDateString) {
 }
 
 const getBastDocDefinition = (data) => {
-    const { requesterName, generatedByName, processedAt, completedAt, requestedAt, allocations, kpSignatureUrl, picSignatureUrl, picName } = data;
+    const { requesterName, partnerType, generatedByName, processedAt, completedAt, requestedAt, allocations, kpSignatureUrl, signerSignatureUrl, kpName, signerName } = data;
     const bastDate = processedAt || completedAt || requestedAt;
     const formattedDate = formatTanggalBAST(bastDate);
 
@@ -168,7 +168,7 @@ const getBastDocDefinition = (data) => {
                         [
                             { text: 'Pekerjaan / Proyek', style: 'normalTextBold' },
                             { text: ':', style: 'normalText' },
-                            { text: 'Gangguan SBU REG JABAR', style: 'normalText' }
+                            { text: partnerType ? `${partnerType.charAt(0).toUpperCase() + partnerType.slice(1)} SBU REG JABAR` : 'SBU REG JABAR', style: 'normalText' }
                         ]
                     ]
                 },
@@ -200,17 +200,17 @@ const getBastDocDefinition = (data) => {
                             kpSignatureUrl
                                 ? { image: kpSignatureUrl, width: 120, height: 50, alignment: 'center', margin: [0, 10, 0, 10] }
                                 : { text: ' ', margin: [0, 28, 0, 28], alignment: 'center' },
-                            { text: generatedByName || 'Admin', style: 'signatureName', alignment: 'center' }
+                            { text: kpName || generatedByName || 'Admin', style: 'signatureName', alignment: 'center' }
                         ]
                     },
                     {
                         width: '*',
                         stack: [
                             { text: 'Pihak Kedua', style: 'signatureRole', alignment: 'center' },
-                            picSignatureUrl
-                                ? { image: picSignatureUrl, width: 120, height: 50, alignment: 'center', margin: [0, 10, 0, 10] }
+                            signerSignatureUrl
+                                ? { image: signerSignatureUrl, width: 120, height: 50, alignment: 'center', margin: [0, 10, 0, 10] }
                                 : { text: ' ', margin: [0, 28, 0, 28], alignment: 'center' },
-                            { text: picName || requesterName || 'Unknown', style: 'signatureName', alignment: 'center' }
+                            { text: signerName || requesterName || 'Unknown', style: 'signatureName', alignment: 'center' }
                         ]
                     }
                 ],

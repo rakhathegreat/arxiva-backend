@@ -177,10 +177,11 @@ export const submitSignature = async (req, res) => {
                     requestedAt: request.requestedAt,
                     processedAt: request.processedAt || now,
                     completedAt: now,
+                    partnerType: request.requester?.profile?.partnerType || 'gangguan',
                     requesterName: ptName,
-                    picName: recipientName,
-                    picSignatureUrl: signatureUrl,
-                    generatedByName: adminName,
+                    signerName: recipientName,
+                    signerSignatureUrl: signatureUrl,
+                    kpName: adminName,
                     kpSignatureUrl: adminSig,
                     allocations: itemsAllocations
                 };

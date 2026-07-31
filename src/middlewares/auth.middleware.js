@@ -13,7 +13,10 @@ export const authMiddleware = async (req, res, next) => {
     try {
         const decoded = verifyToken(clearToken);
 
-        const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+        const user = await prisma.user.findUnique({ 
+            where: { id: decoded.id },
+            include: { profile: true }
+        });
 
         if (!user || !user.isAktif) {
             return res.status(401).json({ message: 'Unauthorized. Invalid user.' });

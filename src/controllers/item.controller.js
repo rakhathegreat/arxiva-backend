@@ -208,7 +208,7 @@ export const getItems = async (req, res) => {
 
             let lokasiPenyimpanan = "Kardus";
             if (item.location) {
-                if (item.location.name === "Keluar" || item.location.name === "Diluar") {
+                if (item.location.type === "PARTNER" || item.location.name === "Keluar" || item.location.name === "Diluar") {
                     lokasiPenyimpanan = "Mitra";
                 } else if (item.location.parent) {
                     lokasiPenyimpanan = `${item.location.parent.name} - ${item.location.name}`;
