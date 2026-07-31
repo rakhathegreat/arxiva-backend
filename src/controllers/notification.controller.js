@@ -1,4 +1,4 @@
-import prisma from "../config/prisma.js";
+import prisma from "../utils/prisma.js";
 
 /**
  * Get all notifications for the authenticated user
