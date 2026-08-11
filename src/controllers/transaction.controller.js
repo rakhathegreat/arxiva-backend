@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma.js';
+import { createItemMutationWithRetry } from '../utils/mutation.util.js';
 
 async function getUserId(mitra, reqUser) {
     if (reqUser && reqUser.id) return reqUser.id;
@@ -145,16 +146,10 @@ export const createTransaction = async (req, res) => {
             if (loc) destinationLocationId = loc.id;
         }
 
-        // Generate mutationNumber
-        const date = new Date();
-        const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-        const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-        const mutationNumber = `MUT-${yearMonth}-${randomSuffix}`;
-
-        const newTransaction = await prisma.itemMutation.create({
-            data: {
+        const newTransaction = await createItemMutationWithRetry(
+            prisma,
+            {
                 id: id || undefined,
-                mutationNumber,
                 type,
                 itemId: item.id,
                 userId,
@@ -168,8 +163,9 @@ export const createTransaction = async (req, res) => {
                 destinationLocationName: tujuan || null,
                 createdAt: createdAtDate
             },
-            include: { user: { include: { profile: true } }, item: true }
-        });
+            'MUT',
+            { include: { user: { include: { profile: true } }, item: true } }
+        );
 
         res.status(201).json({ message: 'Transaction created successfully', transaction: newTransaction });
     } catch (error) {

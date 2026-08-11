@@ -1,4 +1,66 @@
 /**
+ * Generates a high-entropy mutation number string.
+ * Format: [PREFIX]-[YYYYMMDDHHMMSS]-[6-digit random]
+ * Example: MUT-20260811191045-984210
+ * 
+ * @param {string} [prefix='MUT']
+ * @returns {string}
+ */
+export function generateMutationNumber(prefix = 'MUT') {
+    const now = new Date();
+    const YYYY = now.getFullYear();
+    const MM = String(now.getMonth() + 1).padStart(2, '0');
+    const DD = String(now.getDate()).padStart(2, '0');
+    const HH = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    const random6 = Math.floor(100000 + Math.random() * 900000);
+    return `${prefix}-${YYYY}${MM}${DD}${HH}${mm}${ss}-${random6}`;
+}
+
+/**
+ * Creates an ItemMutation with automatic retry mechanism if a P2002 unique constraint collision occurs on mutationNumber.
+ * 
+ * @param {import('@prisma/client').PrismaClient|import('@prisma/client').Prisma.TransactionClient} dbClient - Prisma client or transaction instance
+ * @param {Object} data - Mutation data object (excluding mutationNumber, or with data fields)
+ * @param {string} [prefix='MUT'] - Prefix for mutation number
+ * @param {Object} [options={}] - Additional Prisma options like include
+ * @param {number} [maxRetries=3] - Maximum retry attempts
+ * @returns {Promise<Object>} Created ItemMutation record
+ */
+export async function createItemMutationWithRetry(dbClient, data, prefix = 'MUT', options = {}, maxRetries = 3) {
+    let attempts = 0;
+    while (true) {
+        try {
+            const mutationNumber = generateMutationNumber(prefix);
+            return await dbClient.itemMutation.create({
+                data: {
+                    ...data,
+                    mutationNumber,
+                },
+                ...options
+            });
+        } catch (error) {
+            attempts++;
+            const isP2002 = error?.code === 'P2002';
+            const isMutationNumberTarget = 
+                error?.meta?.target?.includes?.('mutationNumber') || 
+                error?.meta?.target?.includes?.('ItemMutation_mutationNumber_key') ||
+                String(error?.meta?.target).includes('mutationNumber');
+            
+            if (isP2002 && (isMutationNumberTarget || attempts <= maxRetries)) {
+                if (attempts > maxRetries) {
+                    throw error;
+                }
+                // High-entropy timestamp will be regenerated in next loop iteration
+                continue;
+            }
+            throw error;
+        }
+    }
+}
+
+/**
  * Automatically logs an item mutation into the ItemMutation table.
  * 
  * @param {import('@prisma/client').Prisma.TransactionClient} tx - The active Prisma transaction client
@@ -28,27 +90,17 @@ export async function logMutation(tx, data) {
         throw new Error(`Item dengan ID ${data.itemId} tidak ditemukan untuk dicatat mutasinya.`);
     }
 
-    // 2. Generate a unique mutation number
-    const date = new Date();
-    const yearMonth = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}`;
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000); // 4 digit random
-    const mutationNumber = `MUT-${yearMonth}-${randomSuffix}`;
-
-    // 3. Create mutation log with snapshotted fields
-    return await tx.itemMutation.create({
-        data: {
-            mutationNumber,
-            type: data.type,
-            itemId: item.id,
-            userId: data.userId,
-            serialNumber: item.serialNumber,
-            brand: item.model?.brand?.nama || '-',
-            category: item.model?.materialCategory?.nama || '-',
-            paNumber: item.paNumber || '',
-            originLocationId: data.originLocationId || null,
-            destinationLocationId: data.destinationLocationId || null,
-            requestId: data.requestId || null,
-        }
-    });
+    // 2. Create mutation log with retry logic and snapshotted fields
+    return await createItemMutationWithRetry(tx, {
+        type: data.type,
+        itemId: item.id,
+        userId: data.userId,
+        serialNumber: item.serialNumber,
+        brand: item.model?.brand?.nama || '-',
+        category: item.model?.materialCategory?.nama || '-',
+        paNumber: item.paNumber || '',
+        originLocationId: data.originLocationId || null,
+        destinationLocationId: data.destinationLocationId || null,
+        requestId: data.requestId || null,
+    }, 'MUT');
 }
-

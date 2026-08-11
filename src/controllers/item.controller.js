@@ -1,4 +1,5 @@
 import prisma from '../utils/prisma.js';
+import { createItemMutationWithRetry } from '../utils/mutation.util.js';
 
 async function safeGetOrCreateLocation(name, createData) {
     let loc = await prisma.location.findUnique({ where: { name } });
@@ -385,11 +386,8 @@ export const createItem = async (req, res) => {
 
         let newItem;
         if (status === "Rusak") {
-            const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-            const mutationNumber = `DMG-${dateCode}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-            const [created] = await prisma.$transaction([
-                prisma.item.create({
+            newItem = await prisma.$transaction(async (tx) => {
+                const created = await tx.item.create({
                     data: {
                         id: itemId,
                         serialNumber,
@@ -404,25 +402,24 @@ export const createItem = async (req, res) => {
                         model: { include: { materialCategory: true, brand: true } },
                         location: { include: { parent: true } }
                     }
-                }),
-                prisma.itemMutation.create({
-                    data: {
-                        mutationNumber,
-                        type: "RUSAK",
-                        itemId: itemId,
-                        userId: createdById,
-                        serialNumber,
-                        brand: brand.nama,
-                        category: category.nama,
-                        paNumber: mutationNumber,
-                        originLocationId: locationId,
-                        destinationLocationId: locationId,
-                        originLocationName: lokasiPenyimpanan || null,
-                        destinationLocationName: lokasiPenyimpanan || null,
-                    }
-                })
-            ]);
-            newItem = created;
+                });
+
+                await createItemMutationWithRetry(tx, {
+                    type: "RUSAK",
+                    itemId: itemId,
+                    userId: createdById,
+                    serialNumber,
+                    brand: brand.nama,
+                    category: category.nama,
+                    paNumber: paNumber || "",
+                    originLocationId: locationId,
+                    destinationLocationId: locationId,
+                    originLocationName: lokasiPenyimpanan || null,
+                    destinationLocationName: lokasiPenyimpanan || null,
+                }, 'DMG');
+
+                return created;
+            });
         } else {
             newItem = await prisma.item.create({
                 data: {
@@ -502,11 +499,8 @@ export const updateItem = async (req, res) => {
 
         let updatedItem;
         if (isChangingToRusak) {
-            const dateCode = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-            const mutationNumber = `DMG-${dateCode}-${Math.floor(1000 + Math.random() * 9000)}`;
-
-            const [updated] = await prisma.$transaction([
-                prisma.item.update({
+            updatedItem = await prisma.$transaction(async (tx) => {
+                const updated = await tx.item.update({
                     where: { id },
                     data: {
                         serialNumber: serialNumber || item.serialNumber,
@@ -522,23 +516,22 @@ export const updateItem = async (req, res) => {
                         model: { include: { materialCategory: true, brand: true } },
                         location: { include: { parent: true } }
                     }
-                }),
-                prisma.itemMutation.create({
-                    data: {
-                        mutationNumber,
-                        type: "RUSAK",
-                        itemId: id,
-                        userId: createdById,
-                        serialNumber: serialNumber || item.serialNumber,
-                        brand: brandName || "Unknown",
-                        category: categoryName || "Unknown",
-                        paNumber: mutationNumber,
-                        originLocationId: item.locationId,
-                        destinationLocationId: locationId,
-                    }
-                })
-            ]);
-            updatedItem = updated;
+                });
+
+                await createItemMutationWithRetry(tx, {
+                    type: "RUSAK",
+                    itemId: id,
+                    userId: createdById,
+                    serialNumber: serialNumber || item.serialNumber,
+                    brand: brandName || "Unknown",
+                    category: categoryName || "Unknown",
+                    paNumber: paNumber !== undefined ? paNumber : item.paNumber || "",
+                    originLocationId: item.locationId,
+                    destinationLocationId: locationId,
+                }, 'DMG');
+
+                return updated;
+            });
         } else {
             updatedItem = await prisma.item.update({
                 where: { id },
