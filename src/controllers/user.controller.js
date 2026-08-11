@@ -114,6 +114,10 @@ export const updateUser = async (req, res) => {
         const { id } = req.params;
         const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson, picName, picSignatureUrl } = req.body;
 
+        if (req.user.role !== 'ADMIN' && req.user.id !== id) {
+            return res.status(403).json({ message: 'Forbidden: You can only update your own profile' });
+        }
+
         const user = await prisma.user.findUnique({ where: { id }, include: { profile: true } });
         if (!user) {
             return res.status(404).json({ message: 'User not found' });
@@ -121,9 +125,11 @@ export const updateUser = async (req, res) => {
 
         const updateData = {};
         if (username) updateData.username = username;
-        if (role) updateData.role = role;
-        if (isActive !== undefined) updateData.isAktif = isActive;
-        else if (isAktif !== undefined) updateData.isAktif = isAktif;
+        if (req.user.role === 'ADMIN') {
+            if (role) updateData.role = role;
+            if (isActive !== undefined) updateData.isAktif = isActive;
+            else if (isAktif !== undefined) updateData.isAktif = isAktif;
+        }
 
         if (password) {
             updateData.password = await bcrypt.hash(password, 10);

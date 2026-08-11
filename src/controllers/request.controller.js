@@ -181,8 +181,8 @@ export const allocateItems = async (req, res) => {
             include: { requestItems: true }
         });
 
-        if (!request || (request.status !== 'DISETUJUI' && request.status !== 'SIAP')) {
-            return res.status(400).json({ message: 'Request tidak valid atau belum disetujui' });
+        if (!request || (request.status !== 'MENUNGGU' && request.status !== 'SIAP')) {
+            return res.status(400).json({ message: 'Request tidak valid atau belum bisa dialokasi' });
         }
 
         await prisma.$transaction(async (tx) => {
@@ -262,7 +262,7 @@ export const updateRequestStatus = async (req, res) => {
         const { status } = req.body;
         const user = req.user;
 
-        const validStatuses = ['DRAFT', 'MENUNGGU', 'DISETUJUI', 'SIAP', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
+        const validStatuses = ['DRAFT', 'MENUNGGU', 'SIAP', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({ message: 'Invalid status' });
         }
@@ -284,8 +284,8 @@ export const updateRequestStatus = async (req, res) => {
         }
 
         // RBAC Checks
-        if (['DISETUJUI', 'SIAP', 'SELESAI', 'DITOLAK'].includes(status) && user.role !== 'ADMIN') {
-            return res.status(403).json({ message: 'Hanya admin yang dapat menyetujui, menyiapkan, menyelesaikan, atau menolak request' });
+        if (['SIAP', 'SELESAI', 'DITOLAK'].includes(status) && user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'Hanya admin yang dapat menyiapkan, menyelesaikan, atau menolak request' });
         }
         if (status === 'DIBATALKAN' && user.role !== 'ADMIN' && user.id !== request.requesterId) {
             return res.status(403).json({ message: 'Anda hanya dapat membatalkan request milik sendiri' });
@@ -293,8 +293,10 @@ export const updateRequestStatus = async (req, res) => {
 
         const dataToUpdate = { status };
         const now = new Date();
-        if (status === 'DISETUJUI') dataToUpdate.approvedAt = now;
-        if (status === 'SIAP') dataToUpdate.processedAt = now;
+        if (status === 'SIAP') {
+            dataToUpdate.approvedAt = now;
+            dataToUpdate.processedAt = now;
+        }
         if (status === 'SELESAI') dataToUpdate.completedAt = now;
 
         // Auto-generate BAST Draft PDF when status becomes SIAP

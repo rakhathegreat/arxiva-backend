@@ -4,8 +4,8 @@ import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.j
 
 const router = express.Router();
 
-// Apply auth and admin role middleware to all user routes
-router.use(authMiddleware, roleMiddleware(['ADMIN']));
+// Apply auth middleware to all user routes
+router.use(authMiddleware);
 
 /**
  * @swagger
@@ -20,7 +20,7 @@ router.use(authMiddleware, roleMiddleware(['ADMIN']));
  *       500:
  *         description: Internal server error
  */
-router.get('/', getUsers);
+router.get('/', roleMiddleware(['ADMIN']), getUsers);
 
 /**
  * @swagger
@@ -57,7 +57,7 @@ router.get('/', getUsers);
  *       500:
  *         description: Internal server error
  */
-router.post('/', createUser);
+router.post('/', roleMiddleware(['ADMIN']), createUser);
 
 /**
  * @swagger
@@ -120,6 +120,6 @@ router.put('/:id', updateUser);
  *       500:
  *         description: Internal server error
  */
-router.delete('/:id', deleteUser);
+router.delete('/:id', roleMiddleware(['ADMIN']), deleteUser);
 
 export default router;

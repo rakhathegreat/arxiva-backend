@@ -94,15 +94,7 @@ export const submitSignature = async (req, res) => {
             return res.status(400).json({ message: 'Session already completed' });
         }
 
-        // Update SignatureSession status
-        const updatedSession = await prisma.signatureSession.update({
-            where: { id },
-            data: {
-                status: 'COMPLETED',
-                signatureUrl,
-                signerName: signerName || null
-            }
-        });
+
 
         // 1. Handling BAST Pengambilan request
         if (session.requestId) {
@@ -240,7 +232,7 @@ export const submitSignature = async (req, res) => {
                     const partnerUserLocation = await tx.userLocation.findFirst({
                         where: { userId: request.requesterId }
                     });
-                    
+
                     if (partnerUserLocation) {
                         const destinationLocationId = partnerUserLocation.locationId;
                         for (const reqItem of request.requestItems) {
@@ -287,6 +279,16 @@ export const submitSignature = async (req, res) => {
                 }
             });
         }
+
+        // Mark SignatureSession as completed only after successful processing
+        const updatedSession = await prisma.signatureSession.update({
+            where: { id },
+            data: {
+                status: 'COMPLETED',
+                signatureUrl,
+                signerName: signerName || null
+            }
+        });
 
         res.json(updatedSession);
     } catch (error) {

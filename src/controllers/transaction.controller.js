@@ -117,7 +117,7 @@ export const createTransaction = async (req, res) => {
         const userId = await getUserId(mitra, req.user);
 
         let type = "MASUK";
-        if (kategori === "Keluar") type = "KELUAR";
+        if (kategori === "Keluar" || kategori === "Digunakan") type = "KELUAR";
         if (kategori === "Rusak") type = "RUSAK";
         if (kategori === "Hilang") type = "HILANG";
 
@@ -164,6 +164,8 @@ export const createTransaction = async (req, res) => {
                 paNumber: nomor || "",
                 originLocationId,
                 destinationLocationId,
+                originLocationName: asal || null,
+                destinationLocationName: tujuan || null,
                 createdAt: createdAtDate
             },
             include: { user: { include: { profile: true } }, item: true }

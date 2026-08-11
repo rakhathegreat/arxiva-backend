@@ -15,6 +15,9 @@ export const getLocations = async (req, res) => {
                 name: {
                     notIn: ["Keluar", "Diluar"]
                 },
+                type: {
+                    notIn: ["PARTNER", "BRANCH"]
+                },
                 parentId: null
             },
             include: {
@@ -36,6 +39,7 @@ export const getLocations = async (req, res) => {
                     id: loc.id,
                     name: loc.name,
                     type: "Rak",
+                    owner: "KP Tasikmalaya",
                     isActive: loc.isActive,
                     levels: loc.children.map(lvl => ({
                         id: lvl.id,
@@ -52,6 +56,7 @@ export const getLocations = async (req, res) => {
                     id: loc.id,
                     name: loc.name,
                     type: "Pallet",
+                    owner: "KP Tasikmalaya",
                     isActive: loc.isActive,
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
@@ -63,6 +68,7 @@ export const getLocations = async (req, res) => {
                     id: loc.id,
                     name: loc.name,
                     type: "Kardus",
+                    owner: "KP Tasikmalaya",
                     isActive: loc.isActive,
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,

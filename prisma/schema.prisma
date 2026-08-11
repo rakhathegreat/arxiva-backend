@@ -69,7 +69,6 @@ enum ReferenceType {
 enum RequestStatus {
   DRAFT /// Draft request@
   MENUNGGU /// Waiting for approval
-  DISETUJUI /// Approved by admin
   SIAP /// Ready to take
   DITERIMA /// Received by partner/requester
   SELESAI /// Request fully completed
@@ -127,7 +126,7 @@ model UserProfile {
   partnerType   String?
   contactPerson String?
   picName       String?
-  picSignatureUrl String? @db.Text
+  picSignatureUrl String? @db.LongText
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
@@ -265,6 +264,9 @@ model ItemMutation {
 
   originLocationId      Int?
   destinationLocationId Int?
+  
+  originLocationName      String?
+  destinationLocationName String?
 
   originLocation      Location? @relation("OriginLocation", fields: [originLocationId], references: [id])
   destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
@@ -449,11 +451,11 @@ model DeliveryDocument {
   kpSignedAt DateTime?
   kpSignedById String?
   kpName String?
-  kpSignatureUrl String? @db.Text
+  kpSignatureUrl String? @db.LongText
   picSignedAt DateTime?
   picSignedById String?
   signerName String?
-  signerSignatureUrl String? @db.Text
+  signerSignatureUrl String? @db.LongText
   itemsSnapshot String? @db.LongText
 
   createdAt DateTime @default(now())
@@ -463,7 +465,7 @@ model DeliveryDocument {
 model SignatureSession {
   id           String        @id @default(uuid())
   status       SessionStatus @default(PENDING)
-  signatureUrl String?       @db.Text
+  signatureUrl String?       @db.LongText
   signerName   String?
   requestId    String?
   userId       String?

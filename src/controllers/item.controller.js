@@ -202,7 +202,9 @@ export const getItems = async (req, res) => {
 
         const formattedItems = items.map(item => {
             let statusUnit = "Tersedia";
-            if (item.status === "digunakan") statusUnit = "Terdistribusi";
+            if (item.status === "digunakan") {
+                statusUnit = item.paNumber ? "Digunakan" : "Terdistribusi";
+            }
             if (item.status === "rusak") statusUnit = "Rusak";
             if (item.status === "hilang") statusUnit = "Hilang";
 
@@ -305,13 +307,15 @@ export const getItemHistory = async (req, res) => {
         const formatted = mutations.map(t => {
             let actualDate = t.createdAt;
             let kategori = "Masuk";
-            if (t.type === "KELUAR") kategori = "Keluar";
+            if (t.type === "KELUAR") {
+                kategori = t.user?.role === "MITRA" ? "Digunakan" : "Keluar";
+            }
             if (t.type === "RUSAK") kategori = "Rusak";
             if (t.type === "HILANG") kategori = "Hilang";
 
             const mutationNo = t.mutationNumber || t.paNumber || "-";
-            const asalLoc = t.originLocation?.name || "Inbound";
-            const tujuanLoc = t.destinationLocation?.name || "Gudang Utama";
+            const asalLoc = t.originLocationName || t.originLocation?.name || "Inbound";
+            const tujuanLoc = t.destinationLocationName || t.destinationLocation?.name || "Gudang Utama";
             const noteStr = `Status barang diubah menjadi ${kategori}`;
 
             return {
@@ -413,6 +417,8 @@ export const createItem = async (req, res) => {
                         paNumber: mutationNumber,
                         originLocationId: locationId,
                         destinationLocationId: locationId,
+                        originLocationName: lokasiPenyimpanan || null,
+                        destinationLocationName: lokasiPenyimpanan || null,
                     }
                 })
             ]);
@@ -446,7 +452,7 @@ export const createItem = async (req, res) => {
 export const updateItem = async (req, res) => {
     try {
         const { id } = req.params;
-        const { serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
+        const { serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber } = req.body;
 
         const item = await prisma.item.findUnique({ where: { id } });
         if (!item) {
@@ -484,7 +490,7 @@ export const updateItem = async (req, res) => {
         let prismaStatus = item.status;
         if (status) {
             if (status === "Tersedia") prismaStatus = "tersedia";
-            if (status === "Diluar") prismaStatus = "digunakan";
+            if (status === "Diluar" || status === "Keluar" || status === "Digunakan") prismaStatus = "digunakan";
             if (status === "Rusak") prismaStatus = "rusak";
             if (status === "Hilang") prismaStatus = "hilang";
         }
@@ -509,7 +515,8 @@ export const updateItem = async (req, res) => {
                         locationId,
                         entryDate,
                         exitDate,
-                        createdById
+                        createdById,
+                        paNumber: paNumber !== undefined ? paNumber : item.paNumber
                     },
                     include: {
                         model: { include: { materialCategory: true, brand: true } },
@@ -542,7 +549,8 @@ export const updateItem = async (req, res) => {
                     locationId,
                     entryDate,
                     exitDate,
-                    createdById
+                    createdById,
+                    paNumber: paNumber !== undefined ? paNumber : item.paNumber
                 },
                 include: {
                     model: { include: { materialCategory: true, brand: true } },
