@@ -101,7 +101,8 @@ export const createMaterialModel = async (req, res) => {
 export const updateMaterialModel = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, materialCategoryId, brandId } = req.body;
+        const { materialCategoryId, brandId, code } = req.body;
+        const nama = req.body.nama || req.body.name;
 
         const model = await prisma.materialModel.findUnique({
             where: { id: parseInt(id) }
@@ -143,6 +144,7 @@ export const updateMaterialModel = async (req, res) => {
 
         const updateData = {};
         if (nama) updateData.nama = nama;
+        if (code !== undefined) updateData.code = code;
         if (materialCategoryId) updateData.materialCategoryId = parseInt(materialCategoryId);
         if (brandId) updateData.brandId = parseInt(brandId);
 

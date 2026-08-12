@@ -1,5 +1,5 @@
 import express from 'express';
-import { login, me, exchangeGoogleCode, getGoogleStatus, disconnectGoogle, getDriveFolderId, updateDriveFolderId } from '../controllers/auth.controller.js';
+import { login, me, getGoogleAuthUrl, exchangeGoogleCode, getGoogleStatus, disconnectGoogle, getDriveFolderId, updateDriveFolderId } from '../controllers/auth.controller.js';
 import { authMiddleware } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -84,6 +84,23 @@ router.post('/login', login);
  *         description: Internal server error
  */
 router.get('/me', authMiddleware, me);
+
+/**
+ * @swagger
+ * /auth/google:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Get Google OAuth URL
+ *     description: Generate Google OAuth authorization URL for admin authentication.
+ *     responses:
+ *       200:
+ *         description: Auth URL generated successfully
+ *       403:
+ *         description: Forbidden (Admin only)
+ *       500:
+ *         description: Internal server error
+ */
+router.get('/google', authMiddleware, getGoogleAuthUrl);
 
 /**
  * @swagger

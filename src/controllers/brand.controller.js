@@ -90,7 +90,8 @@ export const createBrand = async (req, res) => {
 export const updateBrand = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, origin, identifier } = req.body;
+        const { origin, identifier } = req.body;
+        const nama = req.body.nama || req.body.name;
 
         const brand = await prisma.brand.findUnique({
             where: { id: parseInt(id) }

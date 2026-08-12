@@ -77,6 +77,32 @@ const oauth2Client = new google.auth.OAuth2(
     process.env.GOOGLE_REDIRECT_URI  // http://localhost:3456
 );
 
+export const getGoogleAuthUrl = async (req, res) => {
+    try {
+        if (req.user.role !== 'ADMIN') {
+            return res.status(403).json({ message: 'Hanya admin yang diizinkan untuk menghubungkan akun Google' });
+        }
+
+        const scopes = [
+            'https://www.googleapis.com/auth/userinfo.email',
+            'https://www.googleapis.com/auth/userinfo.profile',
+            'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/spreadsheets'
+        ];
+
+        const url = oauth2Client.generateAuthUrl({
+            access_type: 'offline',
+            prompt: 'consent',
+            scope: scopes
+        });
+
+        res.json({ url });
+    } catch (error) {
+        console.error('Error generating Google Auth URL:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
 export const exchangeGoogleCode = async (req, res) => {
     try {
         if (req.user.role !== 'ADMIN') {
