@@ -141,12 +141,12 @@ const getBastDocDefinition = (data) => {
                     widths: [80, 5, '*'],
                     body: [
                         [
-                            { text: 'PIHAK Pertama', style: 'normalText' },
+                            { text: 'Pihak Pertama', style: 'normalText' },
                             { text: ':', style: 'normalText' },
-                            { text: 'PLN ICON PLUS SBU Regional Jawa Barat', style: 'normalText' }
+                            { text: 'PLN ICON PLUS SBU Regional Jawa Barat (Bagian Inventori)', style: 'normalText' }
                         ],
                         [
-                            { text: 'PIHAK Kedua', style: 'normalText' },
+                            { text: 'Pihak Kedua', style: 'normalText' },
                             { text: ':', style: 'normalText' },
                             { text: requesterName || 'Unknown', style: 'normalText' }
                         ]
@@ -168,7 +168,7 @@ const getBastDocDefinition = (data) => {
                         [
                             { text: 'Pekerjaan / Proyek', style: 'normalTextBold' },
                             { text: ':', style: 'normalText' },
-                            { text: partnerType ? `${partnerType.charAt(0).toUpperCase() + partnerType.slice(1)} SBU REG JABAR` : 'SBU REG JABAR', style: 'normalText' }
+                            { text: partnerType ? `${partnerType.charAt(0).toUpperCase() + partnerType.slice(1)} SBU Regional Jawa Barat` : 'SBU Regional Jawa Barat', style: 'normalText' }
                         ]
                     ]
                 },

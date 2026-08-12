@@ -8,6 +8,20 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+const releaseRequestAllocations = async (tx, request) => {
+    const requestItemIds = request.requestItems.map(ri => ri.id);
+    if (requestItemIds.length === 0) return;
+
+    await tx.requestAllocation.deleteMany({
+        where: { requestItemId: { in: requestItemIds } }
+    });
+
+    await tx.requestItem.updateMany({
+        where: { id: { in: requestItemIds } },
+        data: { fulfilledQuantity: 0 }
+    });
+};
+
 const processRequestCompletionMutation = async (tx, request, user, destinationLocationId) => {
     for (const reqItem of request.requestItems) {
         for (const allocation of reqItem.allocations) {
@@ -187,19 +201,8 @@ export const allocateItems = async (req, res) => {
 
         await prisma.$transaction(async (tx) => {
             // Reset existing allocations for this request to make this operation idempotent
-            const requestItemIds = request.requestItems.map(ri => ri.id);
-            if (requestItemIds.length > 0) {
-                await tx.requestAllocation.deleteMany({
-                    where: { requestItemId: { in: requestItemIds } }
-                });
-
-                await tx.requestItem.updateMany({
-                    where: { id: { in: requestItemIds } },
-                    data: { fulfilledQuantity: 0 }
-                });
-
-                request.requestItems.forEach(ri => ri.fulfilledQuantity = 0);
-            }
+            await releaseRequestAllocations(tx, request);
+            request.requestItems.forEach(ri => ri.fulfilledQuantity = 0);
 
             for (const itemId of itemIds) {
                 const item = await tx.item.findUnique({
@@ -426,6 +429,16 @@ export const updateRequestStatus = async (req, res) => {
                 return updatedReq;
             });
             return res.json({ message: 'Request status updated and items mutated', request: updated });
+        } else if (['DITOLAK', 'DIBATALKAN'].includes(status)) {
+            const updated = await prisma.$transaction(async (tx) => {
+                await releaseRequestAllocations(tx, request);
+                return tx.request.update({
+                    where: { id },
+                    data: dataToUpdate,
+                    include: { requester: { include: { profile: true } } }
+                });
+            });
+            return res.json({ message: 'Request status updated and allocations released', request: updated });
         } else {
             const updated = await prisma.request.update({
                 where: { id },

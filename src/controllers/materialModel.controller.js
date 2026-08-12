@@ -144,7 +144,7 @@ export const updateMaterialModel = async (req, res) => {
 
         const updateData = {};
         if (nama) updateData.nama = nama;
-        if (code !== undefined) updateData.code = code;
+        if (code) updateData.code = code;
         if (materialCategoryId) updateData.materialCategoryId = parseInt(materialCategoryId);
         if (brandId) updateData.brandId = parseInt(brandId);
 
