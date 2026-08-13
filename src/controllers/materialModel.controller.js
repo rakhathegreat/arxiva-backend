@@ -6,7 +6,8 @@ export const getMaterialModels = async (req, res) => {
         const models = await prisma.materialModel.findMany({
             include: {
                 materialCategory: true,
-                brand: true
+                brand: true,
+                _count: { select: { items: true } }
             }
         });
         res.json(models);

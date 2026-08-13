@@ -4,7 +4,13 @@ import prisma from '../utils/prisma.js';
 export const getCategories = async (req, res) => {
     try {
         const categories = await prisma.materialCategory.findMany();
-        res.json(categories);
+        const categoriesWithCounts = await Promise.all(categories.map(async (category) => {
+            const totalItems = await prisma.item.count({
+                where: { model: { materialCategoryId: category.id } }
+            });
+            return { ...category, totalItems };
+        }));
+        res.json(categoriesWithCounts);
     } catch (error) {
         console.error('Error in getCategories:', error);
         res.status(500).json({ message: 'Internal server error' });

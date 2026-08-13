@@ -12,7 +12,15 @@ export const getBrands = async (req, res) => {
                 }
             }
         });
-        res.json(brands);
+
+        const brandsWithCounts = await Promise.all(brands.map(async (brand) => {
+            const totalItems = await prisma.item.count({
+                where: { model: { brandId: brand.id } }
+            });
+            return { ...brand, totalItems };
+        }));
+
+        res.json(brandsWithCounts);
     } catch (error) {
         console.error('Error in getBrands:', error);
         res.status(500).json({ message: 'Internal server error' });

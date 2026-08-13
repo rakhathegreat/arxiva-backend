@@ -112,6 +112,7 @@ export const getItems = async (req, res) => {
         const statusFilter = req.query.status;
         const categoryFilter = req.query.kategori;
         const brandFilter = req.query.merek;
+        const locationFilter = req.query.lokasi;
 
         const where = {};
 
@@ -158,6 +159,19 @@ export const getItems = async (req, res) => {
                     nama: brandFilter
                 }
             };
+        }
+
+        // Location / Shelf Filter
+        if (locationFilter && locationFilter !== 'all') {
+            if (locationFilter.includes(' - ')) {
+                const [parentName, childName] = locationFilter.split(' - ').map(s => s.trim());
+                where.location = {
+                    name: childName,
+                    parent: { name: parentName }
+                };
+            } else {
+                where.location = { name: locationFilter };
+            }
         }
 
         // Search Keyword
