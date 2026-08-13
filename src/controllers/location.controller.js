@@ -190,11 +190,7 @@ export const createLocation = async (req, res) => {
 export const updateLocation = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { name, capacity, brandRule } = req.body;
-
-        if (!name) {
-            return res.status(400).json({ message: 'Name is required' });
-        }
+        const { capacity, brandRule } = req.body;
 
         const existing = await prisma.location.findUnique({ where: { id } });
         if (!existing) {
@@ -215,7 +211,6 @@ export const updateLocation = async (req, res) => {
         await prisma.location.update({
             where: { id },
             data: {
-                name,
                 capacity: capacity || existing.capacity
             }
         });
