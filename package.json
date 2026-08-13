@@ -1,6 +1,6 @@
 {
   "name": "arxiva-backend",
-  "version": "1.0.0",
+  "version": "2.0.4",
   "description": "Backend for arxiva",
   "license": "ISC",
   "author": "",
@@ -9,7 +9,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "node --watch --env-file=.env app.js",
-    "start": "node --env-file=.env app.js",
+    "start": "node app.js",
     "seed": "node prisma/seeder.js"
   },
   "prisma": {
@@ -23,7 +23,10 @@
     "express": "^5.2.1",
     "googleapis": "^173.0.0",
     "jsonwebtoken": "^9.0.3",
-    "prisma": "^6.19.3"
+    "pdfmake": "^0.3.11",
+    "prisma": "^6.19.3",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

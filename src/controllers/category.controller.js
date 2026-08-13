@@ -3,8 +3,14 @@ import prisma from '../utils/prisma.js';
 // GET /categories
 export const getCategories = async (req, res) => {
     try {
-        const categories = await prisma.category.findMany();
-        res.json(categories);
+        const categories = await prisma.materialCategory.findMany();
+        const categoriesWithCounts = await Promise.all(categories.map(async (category) => {
+            const totalItems = await prisma.item.count({
+                where: { model: { materialCategoryId: category.id } }
+            });
+            return { ...category, totalItems: totalItems ?? 0 };
+        }));
+        res.json(categoriesWithCounts);
     } catch (error) {
         console.error('Error in getCategories:', error);
         res.status(500).json({ message: 'Internal server error' });
@@ -15,7 +21,7 @@ export const getCategories = async (req, res) => {
 export const getCategoryById = async (req, res) => {
     try {
         const { id } = req.params;
-        const category = await prisma.category.findUnique({
+        const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
         });
 
@@ -33,16 +39,15 @@ export const getCategoryById = async (req, res) => {
 // POST /categories
 export const createCategory = async (req, res) => {
     try {
-        const { nama, deskripsi, safetyStock } = req.body;
+        const { nama, safetyStock } = req.body;
 
-        if (!nama || !deskripsi) {
-            return res.status(400).json({ message: 'Nama and deskripsi are required' });
+        if (!nama) {
+            return res.status(400).json({ message: 'Nama is required' });
         }
 
-        const newCategory = await prisma.category.create({
+        const newCategory = await prisma.materialCategory.create({
             data: {
                 nama,
-                deskripsi,
                 safetyStock: safetyStock || 0
             }
         });
@@ -61,9 +66,9 @@ export const createCategory = async (req, res) => {
 export const updateCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const { nama, deskripsi, safetyStock } = req.body;
+        const { nama, safetyStock } = req.body;
 
-        const category = await prisma.category.findUnique({
+        const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
         });
 
@@ -73,10 +78,9 @@ export const updateCategory = async (req, res) => {
 
         const updateData = {};
         if (nama) updateData.nama = nama;
-        if (deskripsi) updateData.deskripsi = deskripsi;
-        if (safetyStock) updateData.safetyStock = safetyStock;
+        if (safetyStock !== undefined) updateData.safetyStock = safetyStock;
 
-        const updatedCategory = await prisma.category.update({
+        const updatedCategory = await prisma.materialCategory.update({
             where: { id: parseInt(id) },
             data: updateData
         });
@@ -96,7 +100,7 @@ export const deleteCategory = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const category = await prisma.category.findUnique({
+        const category = await prisma.materialCategory.findUnique({
             where: { id: parseInt(id) }
         });
 
@@ -104,7 +108,7 @@ export const deleteCategory = async (req, res) => {
             return res.status(404).json({ message: 'Category not found' });
         }
 
-        await prisma.category.delete({
+        await prisma.materialCategory.delete({
             where: { id: parseInt(id) }
         });
 

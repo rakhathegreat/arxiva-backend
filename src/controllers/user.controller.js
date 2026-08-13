@@ -25,7 +25,7 @@ export const getUsers = async (req, res) => {
 // POST /users
 export const createUser = async (req, res) => {
     try {
-        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson } = req.body;
+        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson, picName, picSignatureUrl } = req.body;
 
         if (!username || !password) {
             return res.status(400).json({ message: 'Username and password are required' });
@@ -42,32 +42,60 @@ export const createUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const activeStatus = isActive !== undefined ? isActive : (isAktif !== undefined ? isAktif : true);
 
-        const newUser = await prisma.user.create({
-            data: {
-                username,
-                password: hashedPassword,
-                role: role || 'MITRA',
-                isAktif: activeStatus,
-                profile: {
-                    create: {
-                        nama: name || nama || username,
-                        email: email || '-',
-                        telepon: phone || telepon || '-',
-                        alamat: address || alamat || '-',
-                        code: code || '-',
-                        partnerType: partnerType || 'Supplier',
-                        contactPerson: contactPerson || '-'
+        const userRole = role || 'MITRA';
+        const profileNama = name || nama || username;
+
+        // Gunakan transaksi agar user, profile, location, dan linknya terbuat secara atomic
+        const newUser = await prisma.$transaction(async (tx) => {
+            const user = await tx.user.create({
+                data: {
+                    username,
+                    password: hashedPassword,
+                    role: userRole,
+                    isAktif: activeStatus,
+                    profile: {
+                        create: {
+                            nama: profileNama,
+                            email: email || '-',
+                            telepon: phone || telepon || '-',
+                            alamat: address || alamat || '-',
+                            code: code || '-',
+                            partnerType: partnerType || 'Supplier',
+                            contactPerson: contactPerson || '-',
+                            picName: picName || null,
+                            picSignatureUrl: picSignatureUrl || null
+                        }
                     }
+                },
+                select: {
+                    id: true,
+                    username: true,
+                    role: true,
+                    isAktif: true,
+                    createdAt: true,
+                    profile: true
                 }
-            },
-            select: {
-                id: true,
-                username: true,
-                role: true,
-                isAktif: true,
-                createdAt: true,
-                profile: true
+            });
+
+            // Jika role adalah MITRA, otomatis buat lokasi partner dan relasikan
+            if (userRole === 'MITRA') {
+                const partnerLocation = await tx.location.create({
+                    data: {
+                        name: profileNama,
+                        type: 'PARTNER',
+                        capacity: 999999, // Kapasitas besar untuk lokasi logis partner
+                    }
+                });
+
+                await tx.userLocation.create({
+                    data: {
+                        userId: user.id,
+                        locationId: partnerLocation.id
+                    }
+                });
             }
+
+            return user;
         });
 
         res.status(201).json({
@@ -84,7 +112,11 @@ export const createUser = async (req, res) => {
 export const updateUser = async (req, res) => {
     try {
         const { id } = req.params;
-        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson } = req.body;
+        const { username, password, role, isActive, isAktif, name, nama, email, phone, telepon, address, alamat, code, partnerType, contactPerson, picName, picSignatureUrl } = req.body;
+
+        if (req.user.role !== 'ADMIN' && req.user.id !== id) {
+            return res.status(403).json({ message: 'Forbidden: You can only update your own profile' });
+        }
 
         const user = await prisma.user.findUnique({ where: { id }, include: { profile: true } });
         if (!user) {
@@ -93,9 +125,11 @@ export const updateUser = async (req, res) => {
 
         const updateData = {};
         if (username) updateData.username = username;
-        if (role) updateData.role = role;
-        if (isActive !== undefined) updateData.isAktif = isActive;
-        else if (isAktif !== undefined) updateData.isAktif = isAktif;
+        if (req.user.role === 'ADMIN') {
+            if (role) updateData.role = role;
+            if (isActive !== undefined) updateData.isAktif = isActive;
+            else if (isAktif !== undefined) updateData.isAktif = isAktif;
+        }
 
         if (password) {
             updateData.password = await bcrypt.hash(password, 10);
@@ -109,6 +143,8 @@ export const updateUser = async (req, res) => {
         if (code !== undefined) profileData.code = code;
         if (partnerType !== undefined) profileData.partnerType = partnerType;
         if (contactPerson !== undefined) profileData.contactPerson = contactPerson;
+        if (picName !== undefined) profileData.picName = picName;
+        if (picSignatureUrl !== undefined) profileData.picSignatureUrl = picSignatureUrl;
 
         if (Object.keys(profileData).length > 0) {
             if (user.profile) {
@@ -124,7 +160,9 @@ export const updateUser = async (req, res) => {
                         alamat: profileData.alamat || '-',
                         code: profileData.code || '-',
                         partnerType: profileData.partnerType || 'Supplier',
-                        contactPerson: profileData.contactPerson || '-'
+                        contactPerson: profileData.contactPerson || '-',
+                        picName: profileData.picName || null,
+                        picSignatureUrl: profileData.picSignatureUrl || null
                     }
                 };
             }

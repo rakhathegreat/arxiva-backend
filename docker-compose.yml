@@ -30,7 +30,7 @@ services:
       - app-network
 
   backend:
-    build: .
+    image: ghcr.io/rakhathegreat/arxiva-backend:latest
     env_file:
       - .env
     container_name: backend
@@ -41,6 +41,7 @@ services:
       DATABASE_URL: "mysql://admin:arxiva123@mariadb:3306/arxiva"
       NODE_ENV: "production"
       PORT: "3000"
+      ENABLE_SWAGGER: "true"
     expose:
       - "3000"
     networks:

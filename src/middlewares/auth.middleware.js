@@ -1,17 +1,22 @@
-import { verifyToken } from '../utils/jwt.js';
+ import { verifyToken } from '../utils/jwt.js';
 import prisma from '../utils/prisma.js';
 
 export const authMiddleware = async (req, res, next) => {
-    const token = req.headers.authorization;
+    const token = req.headers.authorization || req.query.token;
 
     if (!token) {
         return res.status(401).json({ message: 'Unauthorized. No token provided.' });
     }
 
-    try {
-        const decoded = verifyToken(token);
+    const clearToken = token.replace('Bearer ', ''); // Remove 'Bearer ' prefix if present
 
-        const user = await prisma.user.findUnique({ where: { id: decoded.id } });
+    try {
+        const decoded = verifyToken(clearToken);
+
+        const user = await prisma.user.findUnique({ 
+            where: { id: decoded.id },
+            include: { profile: true }
+        });
 
         if (!user || !user.isAktif) {
             return res.status(401).json({ message: 'Unauthorized. Invalid user.' });

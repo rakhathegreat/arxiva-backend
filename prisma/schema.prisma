@@ -13,18 +13,25 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+/// Role of the user in the system.
 enum Role {
   ADMIN
   MITRA
 }
 
+/// Current physical status of an item.
 enum Status {
-  tersedia
-  digunakan
-  rusak
-  hilang
+  tersedia /// Item is available and in good condition
+  digunakan /// Item is currently in use or deployed
+  rusak /// Item is damaged
+  hilang /// Item is lost
 }
 
+/// Category of the notification for the user.
 enum NotificationType {
   SYSTEM
   REQUEST
@@ -33,46 +40,80 @@ enum NotificationType {
   STOCK_LOW
 }
 
-enum TransactionCategory {
-  MASUK
-  KELUAR
-  RUSAK
-  HILANG
+/// Category for transaction logs to track the movement or status change of an item.
+enum MutationType {
+  MASUK /// Item entering inventory
+  KELUAR /// Item leaving inventory
+  RUSAK /// Item marked as damaged
+  HILANG /// Item marked as lost
 }
 
+/// Defines the hierarchical type of a location.
 enum LocationType {
-  KARDUS
-  RAK
+  BRANCH /// Main branch office
+  PARTNER /// External partner location
+  RACK /// Physical rack within a branch/partner
+  BOX /// Box within a rack
+  PALLET /// Pallet for bulk storage
 }
 
+/// Type of entity referenced by a notification.
 enum ReferenceType {
   ITEM
-  TRANSACTION
+  ITEM_MUTATION
   LOCATION
   USER
 }
 
+/// Status lifecycle of an item request.
+enum RequestStatus {
+  DRAFT /// Draft request@
+  MENUNGGU /// Waiting for approval
+  SIAP /// Ready to take
+  DITERIMA /// Received by partner/requester
+  SELESAI /// Request fully completed
+  DITOLAK /// Rejected
+  DIBATALKAN /// Cancelled by the requester
+}
+
+/// Status for a signature session captured via mobile QR
+enum SessionStatus {
+  PENDING
+  COMPLETED
+}
+
+// -----------------------------------------------------------------------------
+// MODELS
+// -----------------------------------------------------------------------------
+
+/// Core user account representing both system admins and partners.
 model User {
-  id                 String   @id @default(uuid())
-  username           String   @unique
+  id                 String  @id @default(uuid())
+  username           String  @unique
   password           String
-  role               Role     @default(MITRA)
-  isAktif            Boolean  @default(true)
-  googleConnected    Boolean  @default(false)
+  role               Role    @default(MITRA)
+  isAktif            Boolean @default(true) /// Soft delete/disable flag
+  googleConnected    Boolean @default(false)
   googleEmail        String?
-  googleAccessToken  String?  @db.Text
-  googleRefreshToken String?  @db.Text
+  googleAccessToken  String? @db.Text
+  googleRefreshToken String? @db.Text
 
-  profile   UserProfile?
+  profile UserProfile?
 
-  items          Item[]
-  transactions   Transaction[]
-  notifications  Notification[]
+  items         Item[]
+  itemMutations ItemMutation[]
+  notifications Notification[]
+  locations     UserLocation[]
+
+  requests           Request[]           @relation("Requester")
+  allocatedRequests  RequestAllocation[] @relation("Allocator")
+  generatedDocuments DeliveryDocument[]  @relation("GeneratedDocument")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+/// Detailed profile information for a User.
 model UserProfile {
   id            String   @id @default(uuid())
   userId        String   @unique
@@ -81,152 +122,355 @@ model UserProfile {
   nama          String
   telepon       String
   alamat        String
-  code          String?
+  code          String? /// Unique partner identification code
   partnerType   String?
   contactPerson String?
+  picName       String?
+  picSignatureUrl String? @db.LongText
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
 
-model Category {
-  id          Int      @id @default(autoincrement())
-  nama        String
-  deskripsi   String?
-  safetyStock Int      @default(0)
+/// Master category for grouping related items (e.g., Laptops, Monitors).
+model MaterialCategory {
+  id Int @id @default(autoincrement())
 
-  brands      Brand[]
-  items       Item[]
+  nama   String
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt 
+  safetyStock Int @default(0) /// Minimum stock threshold before low stock alert
+
+  models MaterialModel[]
+
+  requestItems RequestItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
+/// Brand or manufacturer associated with a Category.
 model Brand {
-  id          Int      @id @default(autoincrement())
-  nama        String   @unique
-  origin      String
-  identifier  String   @unique
+  id         Int    @id @default(autoincrement())
+  nama       String @unique
+  origin     String /// Country or region of origin
+  identifier String @unique /// Code or slug used for generation/tracking
 
-  categoryId  Int
-  category    Category @relation(fields: [categoryId], references: [id])
+  models        MaterialModel[]
+  locationRules BrandLocationRule[]
 
-  items       Item[]
-  levelRules  Level[]
+  requestItems RequestItem[]
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
+model MaterialModel {
+  id   Int    @id @default(autoincrement())
+  code String @unique
+  nama String @unique
+
+  materialCategoryId Int
+  materialCategory   MaterialCategory @relation(fields: [materialCategoryId], references: [id])
+
+  brandId Int
+  brand   Brand @relation(fields: [brandId], references: [id])
+
+  items Item[]
+  requestItems RequestItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([brandId])
+  @@index([materialCategoryId])
+}
+
+/// System and operational notifications for users.
 model Notification {
-  id            String            @id @default(uuid())
+  id String @id @default(uuid())
 
-  userId        String
-  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  title         String
-  message       String
-  type          NotificationType  @default(SYSTEM)
+  title   String
+  message String
+  type    NotificationType @default(SYSTEM)
 
-  isRead        Boolean           @default(false)
+  isRead Boolean @default(false)
 
-  referenceId   String?
-  referenceType ReferenceType?
+  referenceId   String? /// Polymorphic relation ID
+  referenceType ReferenceType? /// Polymorphic relation type
 
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([userId, isRead])
   @@index([createdAt])
 }
 
+/// Represents a single physical asset in the inventory system.
 model Item {
-  id                String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  createdById       String
-  createdBy         User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Cascade)
 
-  serialNumber      String   @unique
+  serialNumber String @unique /// Unique hardware serial number
 
-  categoryId        Int
-  category          Category  @relation(fields: [categoryId], references: [id])
+  modelId Int
+  model   MaterialModel @relation(fields: [modelId], references: [id])
 
-  brandId           Int
-  brand             Brand  @relation(fields: [brandId], references: [id])
+  status Status @default(tersedia)
 
-  status            Status    @default(tersedia)
+  paNumber String? /// Property/Asset number assigned by organization
 
-  levelId           String
-  level             Level     @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  locationId Int?
+  location   Location? @relation(fields: [locationId], references: [id])
 
-  entryDate         DateTime
-  exitDate          DateTime?
+  entryDate DateTime /// Date item was received into inventory
+  exitDate  DateTime? /// Date item left inventory or was deployed
 
-  transactions       Transaction[]
+  mutations ItemMutation[]
 
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  requestAllocations RequestAllocation[]
 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([modelId])
+  @@index([status])
   @@index([createdById])
   @@index([createdAt])
+  @@index([locationId])
 }
 
-model Transaction {
-  id          String              @id @default(uuid())
+/// Audit log for item movements and status changes.
+model ItemMutation {
+  id String @id @default(uuid())
+
+  mutationNumber String?      @unique
+  type           MutationType
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  userId String /// User who performed the transaction
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  serialNumber String /// Snapshotted serial number
+  brand        String /// Snapshotted brand
+  category     String /// Snapshotted category
+  paNumber     String /// Snapshotted Property/Asset number
+
+  originLocationId      Int?
+  destinationLocationId Int?
   
-  transactionType    TransactionCategory
+  originLocationName      String?
+  destinationLocationName String?
 
-  itemId      String
-  item        Item                @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  originLocation      Location? @relation("OriginLocation", fields: [originLocationId], references: [id])
+  destinationLocation Location? @relation("DestinationLocation", fields: [destinationLocationId], references: [id])
 
-  userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  serialNumber String
-  brand        String
-  category     String
-  paNumber     String
+  requestId String?
+  request   Request? @relation(fields: [requestId], references: [id])
 
-  origin      String?
-  destination String?
-
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt 
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([createdAt])
+  @@index([requestId])
 }
 
+/// Physical or logical storage location (hierarchical).
 model Location {
-  id          String      @id     @default(uuid())
-  name        String      @unique
-  type        LocationType
-  isActive    Boolean     @default(true)
+  id       Int          @id @default(autoincrement())
+  name     String
+  type     LocationType
+  capacity Int          @default(0) /// Maximum items allowed
+  code     String?      @unique
 
-  levels      Level[]
+  parentId Int?
+  parent   Location?  @relation("LocationHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children Location[] @relation("LocationHierarchy")
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt 
+  isActive Boolean @default(true)
+
+  items         Item[]
+  userLocations UserLocation[]
+
+  brandRules BrandLocationRule[]
+
+  originMutations ItemMutation[] @relation("OriginLocation")
+
+  destinationMutations ItemMutation[] @relation("DestinationLocation")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([parentId, name])
+  @@index([parentId])
+  @@index([type])
 }
 
-model Level {
-  id          String      @id     @default(uuid())
-  locationId  String
-  location    Location    @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  name        String      
-  isActive    Boolean     @default(true)
-  capacity    Int         @default(0)
+/// Join table for associating users with specific locations.
+model UserLocation {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  brandRuleId Int?
-  brandRule   Brand? @relation(fields: [brandRuleId], references: [id], onDelete: Cascade)
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
 
-  sheetId     String?
-  sheetUrl    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  items Item[]
+  @@id([userId, locationId])
+}
 
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt 
+/// Rules restricting which brands can be stored in which locations.
+model BrandLocationRule {
+  id Int @id @default(autoincrement())
 
-  @@unique([locationId, name])
+  brandId Int
+  brand   Brand @relation(fields: [brandId], references: [id], onDelete: Cascade)
+
+  locationId Int
+  location   Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  isDefault Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([brandId, locationId])
+}
+
+/// Request for items made by a partner or branch.
+model Request {
+  id String @id @default(uuid())
+
+  requestNumber String @unique
+
+  requesterId String
+  requester   User   @relation("Requester", fields: [requesterId], references: [id])
+
+  status RequestStatus @default(MENUNGGU)
+
+  notes String?
+
+  requestedAt DateTime @default(now())
+
+  approvedAt DateTime?
+
+  processedAt DateTime?
+
+  shippedAt DateTime?
+
+  receivedAt DateTime?
+
+  completedAt DateTime?
+
+  requestItems  RequestItem[]
+  itemMutations ItemMutation[]
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deliveryDocument DeliveryDocument?
+
+  @@index([requesterId])
+  @@index([status])
+}
+
+/// Specific requested quantity of a category/brand within a Request.
+model RequestItem {
+  id String @id @default(uuid())
+
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  materialCategoryId Int
+  materialCategory   MaterialCategory @relation(fields: [materialCategoryId], references: [id])
+
+  brandId Int?
+  brand   Brand? @relation(fields: [brandId], references: [id])
+
+  modelId Int?
+  model   MaterialModel? @relation(fields: [modelId], references: [id])
+
+  quantity Int
+
+  fulfilledQuantity Int @default(0) /// Tracks how many items have been allocated
+
+  allocations RequestAllocation[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestId])
+}
+
+/// Join table mapping specific physical items to a fulfilled RequestItem.
+model RequestAllocation {
+  id String @id @default(uuid())
+
+  requestItemId String
+  requestItem   RequestItem @relation(fields: [requestItemId], references: [id], onDelete: Cascade)
+
+  itemId String
+  item   Item   @relation(fields: [itemId], references: [id])
+
+  allocatedById String
+  allocatedBy   User   @relation("Allocator", fields: [allocatedById], references: [id])
+
+  allocatedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@unique([itemId])
+}
+
+/// Official generated document (e.g., Berita Acara Serah Terima) for a request.
+model DeliveryDocument {
+  id String @id @default(uuid())
+
+  requestId String @unique
+
+  request Request @relation(fields: [requestId], references: [id])
+
+  documentNumber String @unique
+
+  filePath           String? /// Local path to unsigned BAST draft PDF
+  finalFilePath      String? /// Local path to signed BAST final PDF
+  driveFileId        String? /// File ID in Google Drive
+  driveViewUrl       String? @db.Text /// Shared view URL in Google Drive
+
+  generatedById String
+  generatedBy   User   @relation("GeneratedDocument", fields: [generatedById], references: [id])
+
+  generatedAt DateTime @default(now())
+
+  signedAt DateTime?
+  kpSignedAt DateTime?
+  kpSignedById String?
+  kpName String?
+  kpSignatureUrl String? @db.LongText
+  picSignedAt DateTime?
+  picSignedById String?
+  signerName String?
+  signerSignatureUrl String? @db.LongText
+  itemsSnapshot String? @db.LongText
+
+  createdAt DateTime @default(now())
+}
+
+/// Temporary session for mobile QR code signature capture
+model SignatureSession {
+  id           String        @id @default(uuid())
+  status       SessionStatus @default(PENDING)
+  signatureUrl String?       @db.LongText
+  signerName   String?
+  requestId    String?
+  userId       String?
+  expiresAt    DateTime
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 }

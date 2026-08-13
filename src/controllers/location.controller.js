@@ -7,6 +7,23 @@ const getBrandRuleId = async (brandName) => {
     return brand ? brand.id : null;
 };
 
+const findLocationByParentAndName = async (name, parentId = null) => {
+    return prisma.location.findFirst({
+        where: {
+            name,
+            parentId: parentId ?? null
+        }
+    });
+};
+
+const assertLocationNameAvailable = async (name, parentId = null, excludeId = null) => {
+    const existing = await findLocationByParentAndName(name, parentId);
+    if (existing && existing.id !== excludeId) {
+        const scope = parentId ? 'level/shelf' : 'lokasi';
+        throw Object.assign(new Error(`Nama ${scope} "${name}" sudah digunakan`), { statusCode: 400 });
+    }
+};
+
 // GET /locations
 export const getLocations = async (req, res) => {
     try {
@@ -14,47 +31,66 @@ export const getLocations = async (req, res) => {
             where: {
                 name: {
                     notIn: ["Keluar", "Diluar"]
-                }
+                },
+                type: {
+                    notIn: ["PARTNER", "BRANCH"]
+                },
+                parentId: null
             },
             include: {
-                levels: {
+                children: {
                     include: {
-                        brandRule: true,
+                        brandRules: { include: { brand: true } },
                         items: true
                     }
-                }
+                },
+                brandRules: { include: { brand: true } },
+                items: true
             }
         });
 
         const formattedLocations = locations.map(loc => {
-            const isRak = loc.type === 'RAK';
+            const isRak = loc.type === 'RACK';
             if (isRak) {
                 return {
                     id: loc.id,
                     name: loc.name,
                     type: "Rak",
+                    owner: "KP Tasikmalaya",
                     isActive: loc.isActive,
-                    levels: loc.levels.map(lvl => ({
+                    levels: loc.children.map(lvl => ({
                         id: lvl.id,
                         name: lvl.name,
                         capacity: lvl.capacity,
                         usedCapacity: lvl.items ? lvl.items.length : 0,
-                        brandRule: lvl.brandRule ? lvl.brandRule.nama : "Campuran",
+                        brandRule: lvl.brandRules && lvl.brandRules.length > 0 ? lvl.brandRules[0].brand.nama : "Campuran",
                         isActive: lvl.isActive,
-                        sheetUrl: lvl.sheetUrl || null
+                        sheetUrl: null
                     }))
                 };
+            } else if (loc.type === "PALLET") {
+                return {
+                    id: loc.id,
+                    name: loc.name,
+                    type: "Pallet",
+                    owner: "KP Tasikmalaya",
+                    isActive: loc.isActive,
+                    capacity: loc.capacity,
+                    usedCapacity: loc.items ? loc.items.length : 0,
+                    brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
+                    sheetUrl: null
+                };
             } else {
-                const firstLevel = loc.levels && loc.levels[0];
                 return {
                     id: loc.id,
                     name: loc.name,
                     type: "Kardus",
+                    owner: "KP Tasikmalaya",
                     isActive: loc.isActive,
-                    capacity: firstLevel ? firstLevel.capacity : 0,
-                    usedCapacity: firstLevel && firstLevel.items ? firstLevel.items.length : 0,
-                    brandRule: firstLevel && firstLevel.brandRule ? firstLevel.brandRule.nama : "Campuran",
-                    sheetUrl: firstLevel ? firstLevel.sheetUrl : null
+                    capacity: loc.capacity,
+                    usedCapacity: loc.items ? loc.items.length : 0,
+                    brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
+                    sheetUrl: null
                 };
             }
         });
@@ -69,125 +105,116 @@ export const getLocations = async (req, res) => {
 // POST /locations
 export const createLocation = async (req, res) => {
     try {
-        const { name, type, capacity, brandRule, levels } = req.body;
+        const { name, type, capacity, brandRule, levels, parentId } = req.body;
 
         if (!name || !type) {
             return res.status(400).json({ message: 'Name and type are required' });
         }
 
-        const existing = await prisma.location.findUnique({ where: { name } });
-        if (existing) {
-            return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
+        const parsedParentId = parentId ? parseInt(parentId) : null;
+
+        try {
+            await assertLocationNameAvailable(name, parsedParentId);
+        } catch (error) {
+            return res.status(error.statusCode || 400).json({ message: error.message });
         }
 
-        if (type === "Kardus") {
-            const brandRuleId = await getBrandRuleId(brandRule);
-            const { sheetId, sheetUrl } = await createSheetForLevel(name);
+        const brandRuleId = await getBrandRuleId(brandRule);
+
+        if (type === "Pallet" || type === "PALLET") {
+            const newLocation = await prisma.location.create({
+                data: {
+                    name,
+                    type: "PALLET",
+                    isActive: true,
+                    capacity: capacity || 0,
+                    parentId: parsedParentId,
+                    brandRules: brandRuleId ? {
+                        create: { brandId: brandRuleId }
+                    } : undefined
+                }
+            });
+            return res.status(201).json({ message: 'Location created successfully', location: newLocation });
+        } else if (type === "Rak" || type === "RACK") {
+            const levelNames = (levels || []).map((l) => l.name);
+            const duplicateLevel = levelNames.find((n, i) => levelNames.indexOf(n) !== i);
+            if (duplicateLevel) {
+                return res.status(400).json({ message: `Nama shelf "${duplicateLevel}" duplikat di rak ini` });
+            }
 
             const newLocation = await prisma.location.create({
                 data: {
                     name,
-                    type: "KARDUS",
+                    type: "RACK",
                     isActive: true,
-                    levels: {
-                        create: {
-                            name: "Kardus Level",
-                            capacity: capacity || 0,
-                            brandRuleId,
-                            isActive: true,
-                            sheetId,
-                            sheetUrl
-                        }
+                    children: {
+                        create: await Promise.all((levels || []).map(async (l) => {
+                            const bId = await getBrandRuleId(l.brandRule);
+                            return {
+                                name: l.name,
+                                type: "BOX",
+                                capacity: l.capacity || 0,
+                                isActive: true,
+                                brandRules: bId ? { create: { brandId: bId } } : undefined
+                            };
+                        }))
                     }
                 },
-                include: { levels: true }
+                include: { children: true }
             });
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         } else {
-            const levelsData = await Promise.all((levels || []).map(async (l) => {
-                const bId = await getBrandRuleId(l.brandRule);
-                const { sheetId, sheetUrl } = await createSheetForLevel(`${name} - ${l.name}`);
-                return {
-                    name: l.name,
-                    capacity: l.capacity || 0,
-                    brandRuleId: bId,
-                    isActive: true,
-                    sheetId,
-                    sheetUrl
-                };
-            }));
-
             const newLocation = await prisma.location.create({
                 data: {
                     name,
-                    type: "RAK",
+                    type: "BOX",
                     isActive: true,
-                    levels: {
-                        create: levelsData
-                    }
-                },
-                include: { levels: true }
+                    capacity: capacity || 0,
+                    parentId: parsedParentId,
+                    brandRules: brandRuleId ? {
+                        create: { brandId: brandRuleId }
+                    } : undefined
+                }
             });
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         }
     } catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
+        }
         console.error('Error in createLocation:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
 
-// PUT /locations/:id
 export const updateLocation = async (req, res) => {
     try {
-        const { id } = req.params;
-        const { name, capacity, brandRule } = req.body;
+        const id = parseInt(req.params.id);
+        const { capacity, brandRule } = req.body;
 
-        const loc = await prisma.location.findUnique({
-            where: { id },
-            include: { levels: true }
-        });
-
-        if (!loc) {
+        const existing = await prisma.location.findUnique({ where: { id } });
+        if (!existing) {
             return res.status(404).json({ message: 'Location not found' });
         }
 
-        if (name && name !== loc.name) {
-            const existing = await prisma.location.findUnique({ where: { name } });
-            if (existing) {
-                return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
-            }
-        }
+        const brandRuleId = await getBrandRuleId(brandRule);
 
+        // Update location basic fields
         await prisma.location.update({
             where: { id },
             data: {
-                name: name || loc.name
+                capacity: capacity || existing.capacity
             }
         });
 
-        if (name && name !== loc.name) {
-            if (loc.type === 'KARDUS' && loc.levels && loc.levels[0]) {
-                if (loc.levels[0].sheetId) {
-                    await updateSheetName(loc.levels[0].sheetId, name);
-                }
-            } else if (loc.type === 'RAK' && loc.levels) {
-                for (const lvl of loc.levels) {
-                    if (lvl.sheetId) {
-                        await updateSheetName(lvl.sheetId, `${name} - ${lvl.name}`);
-                    }
-                }
-            }
-        }
-
-        if (loc.type === 'KARDUS' && loc.levels && loc.levels[0]) {
-            const brandRuleId = await getBrandRuleId(brandRule);
-            await prisma.level.update({
-                where: { id: loc.levels[0].id },
-                data: {
-                    capacity: capacity !== undefined ? capacity : loc.levels[0].capacity,
-                    brandRuleId
-                }
+        // Update brand rule if provided
+        if (brandRuleId) {
+            await prisma.brandLocationRule.deleteMany({ where: { locationId: id } });
+            await prisma.brandLocationRule.create({
+                data: { locationId: id, brandId: brandRuleId }
             });
+        } else if (brandRule === "Campuran") {
+            await prisma.brandLocationRule.deleteMany({ where: { locationId: id } });
         }
 
         res.json({ message: 'Location updated successfully' });
@@ -197,145 +224,34 @@ export const updateLocation = async (req, res) => {
     }
 };
 
-// POST /locations/:id/levels
-export const createLevel = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { name, capacity, brandRule } = req.body;
-
-        if (!name) {
-            return res.status(400).json({ message: 'Name is required' });
-        }
-
-        const loc = await prisma.location.findUnique({ where: { id } });
-        if (!loc) {
-            return res.status(404).json({ message: 'Location not found' });
-        }
-
-        const existing = await prisma.level.findUnique({
-            where: { locationId_name: { locationId: id, name } }
-        });
-        if (existing) {
-            return res.status(400).json({ message: 'Nama level sudah ada di rak ini' });
-        }
-
-        const brandRuleId = await getBrandRuleId(brandRule);
-        const { sheetId, sheetUrl } = await createSheetForLevel(`${loc.name} - ${name}`);
-        const newLevel = await prisma.level.create({
-            data: {
-                name,
-                capacity: capacity || 0,
-                brandRuleId,
-                isActive: true,
-                locationId: id,
-                sheetId,
-                sheetUrl
-            }
-        });
-
-        res.status(201).json({ message: 'Level created successfully', level: newLevel });
-    } catch (error) {
-        console.error('Error in createLevel:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-};
-
-// PUT /locations/:id/levels/:levelId
-export const updateLevel = async (req, res) => {
-    try {
-        const { id, levelId } = req.params;
-        const { name, capacity, brandRule } = req.body;
-
-        const lvl = await prisma.level.findUnique({ where: { id: levelId }, include: { location: true } });
-        if (!lvl) {
-            return res.status(404).json({ message: 'Level not found' });
-        }
-
-        if (name && name !== lvl.name) {
-            const existing = await prisma.level.findUnique({
-                where: { locationId_name: { locationId: id, name } }
-            });
-            if (existing) {
-                return res.status(400).json({ message: 'Nama level sudah ada di rak ini' });
-            }
-        }
-
-        if (name && name !== lvl.name && lvl.sheetId && lvl.location) {
-            await updateSheetName(lvl.sheetId, `${lvl.location.name} - ${name}`);
-        }
-
-        const brandRuleId = await getBrandRuleId(brandRule);
-        const updatedLevel = await prisma.level.update({
-            where: { id: levelId },
-            data: {
-                name: name || lvl.name,
-                capacity: capacity !== undefined ? capacity : lvl.capacity,
-                brandRuleId
-            }
-        });
-
-        res.json({ message: 'Level updated successfully', level: updatedLevel });
-    } catch (error) {
-        console.error('Error in updateLevel:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-};
-
-// PATCH /locations/:id/toggle
 export const toggleLocation = async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parseInt(req.params.id);
         const { isActive } = req.body;
 
-        await prisma.location.update({
+        if (isActive === undefined) {
+            return res.status(400).json({ message: 'isActive flag is required' });
+        }
+
+        const updated = await prisma.location.update({
             where: { id },
             data: { isActive }
         });
 
-        res.json({ message: 'Location status updated successfully' });
+        res.json({ message: 'Location status updated successfully', location: updated });
     } catch (error) {
         console.error('Error in toggleLocation:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
 };
 
-// PATCH /locations/:id/levels/:levelId/toggle
-export const toggleLevel = async (req, res) => {
-    try {
-        const { id, levelId } = req.params;
-        const { isActive } = req.body;
-
-        await prisma.level.update({
-            where: { id: levelId },
-            data: { isActive }
-        });
-
-        res.json({ message: 'Level status updated successfully' });
-    } catch (error) {
-        console.error('Error in toggleLevel:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-};
-
-// DELETE /locations/:id
 export const deleteLocation = async (req, res) => {
     try {
-        const { id } = req.params;
+        const id = parseInt(req.params.id);
 
-        const loc = await prisma.location.findUnique({ 
-            where: { id },
-            include: { levels: true }
-        });
-        if (!loc) {
+        const existing = await prisma.location.findUnique({ where: { id } });
+        if (!existing) {
             return res.status(404).json({ message: 'Location not found' });
-        }
-
-        if (loc.levels && loc.levels.length > 0) {
-            for (const lvl of loc.levels) {
-                if (lvl.sheetId) {
-                    await deleteSheet(lvl.sheetId);
-                }
-            }
         }
 
         await prisma.location.delete({ where: { id } });
@@ -347,25 +263,3 @@ export const deleteLocation = async (req, res) => {
     }
 };
 
-// DELETE /locations/:id/levels/:levelId
-export const deleteLevel = async (req, res) => {
-    try {
-        const { levelId } = req.params;
-
-        const lvl = await prisma.level.findUnique({ where: { id: levelId } });
-        if (!lvl) {
-            return res.status(404).json({ message: 'Level not found' });
-        }
-
-        if (lvl.sheetId) {
-            await deleteSheet(lvl.sheetId);
-        }
-
-        await prisma.level.delete({ where: { id: levelId } });
-
-        res.json({ message: 'Level deleted successfully' });
-    } catch (error) {
-        console.error('Error in deleteLevel:', error);
-        res.status(500).json({ message: 'Internal server error' });
-    }
-};
