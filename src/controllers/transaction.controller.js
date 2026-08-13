@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma.js';
 import { createItemMutationWithRetry } from '../utils/mutation.util.js';
+import { formatLocationDisplay } from '../utils/location.util.js';
 
 async function getUserId(mitra, reqUser) {
     if (reqUser && reqUser.id) return reqUser.id;
@@ -23,8 +24,8 @@ export const getTransactions = async (req, res) => {
             include: {
                 user: { include: { profile: true } },
                 item: true,
-                originLocation: true,
-                destinationLocation: true
+                originLocation: { include: { parent: true } },
+                destinationLocation: { include: { parent: true } }
             },
             orderBy: { createdAt: 'desc' }
         });
@@ -51,8 +52,8 @@ export const getTransactions = async (req, res) => {
                 status: "Selesai",
                 sn: t.serialNumber,
                 merek: t.brand,
-                asal: t.originLocation?.name || null,
-                tujuan: t.destinationLocation?.name || null,
+                asal: formatLocationDisplay(t.originLocation, t.originLocationName),
+                tujuan: formatLocationDisplay(t.destinationLocation, t.destinationLocationName),
                 mitra: t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya"),
                 keterangan: `Status barang diubah menjadi ${kategori}`
             };

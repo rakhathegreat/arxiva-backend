@@ -1,3 +1,5 @@
+import { resolveLocationDisplay } from './location.util.js';
+
 /**
  * Generates a high-entropy mutation number string.
  * Format: [PREFIX]-[YYYYMMDDHHMMSS]-[6-digit random]
@@ -90,6 +92,9 @@ export async function logMutation(tx, data) {
         throw new Error(`Item dengan ID ${data.itemId} tidak ditemukan untuk dicatat mutasinya.`);
     }
 
+    const originLocationName = await resolveLocationDisplay(tx, data.originLocationId, data.originLocationName || null);
+    const destinationLocationName = await resolveLocationDisplay(tx, data.destinationLocationId, data.destinationLocationName || null);
+
     // 2. Create mutation log with retry logic and snapshotted fields
     return await createItemMutationWithRetry(tx, {
         type: data.type,
@@ -101,6 +106,8 @@ export async function logMutation(tx, data) {
         paNumber: item.paNumber || '',
         originLocationId: data.originLocationId || null,
         destinationLocationId: data.destinationLocationId || null,
+        originLocationName,
+        destinationLocationName,
         requestId: data.requestId || null,
     }, 'MUT');
 }

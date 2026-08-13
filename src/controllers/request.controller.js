@@ -85,7 +85,10 @@ export const getRequests = async (req, res) => {
             notes: r.notes || "-",
             requestedAt: r.requestedAt,
             itemsCount: r.requestItems.reduce((acc, item) => acc + item.quantity, 0),
-            allocatedCount: r.requestItems.reduce((acc, item) => acc + item.allocations.length, 0),
+            allocatedCount: r.requestItems.reduce(
+                (acc, item) => acc + (item.allocations?.length || item.fulfilledQuantity || 0),
+                0
+            ),
             itemsDetail: r.requestItems.map(item => `${item.materialCategory.nama} (${item.quantity})`).join(", "),
             requestItems: r.requestItems.map(item => ({
                 id: item.id,

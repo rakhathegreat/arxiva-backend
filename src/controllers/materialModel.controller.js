@@ -10,7 +10,11 @@ export const getMaterialModels = async (req, res) => {
                 _count: { select: { items: true } }
             }
         });
-        res.json(models);
+
+        res.json(models.map(model => ({
+            ...model,
+            totalItems: model._count?.items ?? 0
+        })));
     } catch (error) {
         console.error('Error in getMaterialModels:', error);
         res.status(500).json({ message: 'Internal server error' });

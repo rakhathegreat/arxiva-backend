@@ -17,7 +17,7 @@ export const getBrands = async (req, res) => {
             const totalItems = await prisma.item.count({
                 where: { model: { brandId: brand.id } }
             });
-            return { ...brand, totalItems };
+            return { ...brand, totalItems: totalItems ?? 0 };
         }));
 
         res.json(brandsWithCounts);

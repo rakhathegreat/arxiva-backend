@@ -1,5 +1,6 @@
 import prisma from '../utils/prisma.js';
 import { createItemMutationWithRetry } from '../utils/mutation.util.js';
+import { formatLocationDisplay } from '../utils/location.util.js';
 
 async function safeGetOrCreateLocation(name, createData) {
     let loc = await prisma.location.findUnique({ where: { name } });
@@ -313,8 +314,8 @@ export const getItemHistory = async (req, res) => {
             },
             include: {
                 user: { include: { profile: true } },
-                originLocation: true,
-                destinationLocation: true
+                originLocation: { include: { parent: true } },
+                destinationLocation: { include: { parent: true } }
             },
             orderBy: { createdAt: 'desc' }
         });
@@ -329,8 +330,8 @@ export const getItemHistory = async (req, res) => {
             if (t.type === "HILANG") kategori = "Hilang";
 
             const mutationNo = t.mutationNumber || t.paNumber || "-";
-            const asalLoc = t.originLocationName || t.originLocation?.name || "Inbound";
-            const tujuanLoc = t.destinationLocationName || t.destinationLocation?.name || "Gudang Utama";
+            const asalLoc = formatLocationDisplay(t.originLocation, t.originLocationName) || "Inbound";
+            const tujuanLoc = formatLocationDisplay(t.destinationLocation, t.destinationLocationName) || "Gudang Utama";
             const noteStr = `Status barang diubah menjadi ${kategori}`;
 
             return {

@@ -8,7 +8,7 @@ export const getCategories = async (req, res) => {
             const totalItems = await prisma.item.count({
                 where: { model: { materialCategoryId: category.id } }
             });
-            return { ...category, totalItems };
+            return { ...category, totalItems: totalItems ?? 0 };
         }));
         res.json(categoriesWithCounts);
     } catch (error) {
