@@ -7,6 +7,23 @@ const getBrandRuleId = async (brandName) => {
     return brand ? brand.id : null;
 };
 
+const findLocationByParentAndName = async (name, parentId = null) => {
+    return prisma.location.findFirst({
+        where: {
+            name,
+            parentId: parentId ?? null
+        }
+    });
+};
+
+const assertLocationNameAvailable = async (name, parentId = null, excludeId = null) => {
+    const existing = await findLocationByParentAndName(name, parentId);
+    if (existing && existing.id !== excludeId) {
+        const scope = parentId ? 'level/shelf' : 'lokasi';
+        throw Object.assign(new Error(`Nama ${scope} "${name}" sudah digunakan`), { statusCode: 400 });
+    }
+};
+
 // GET /locations
 export const getLocations = async (req, res) => {
     try {
@@ -94,9 +111,12 @@ export const createLocation = async (req, res) => {
             return res.status(400).json({ message: 'Name and type are required' });
         }
 
-        const existing = await prisma.location.findUnique({ where: { name } });
-        if (existing) {
-            return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
+        const parsedParentId = parentId ? parseInt(parentId) : null;
+
+        try {
+            await assertLocationNameAvailable(name, parsedParentId);
+        } catch (error) {
+            return res.status(error.statusCode || 400).json({ message: error.message });
         }
 
         const brandRuleId = await getBrandRuleId(brandRule);
@@ -108,7 +128,7 @@ export const createLocation = async (req, res) => {
                     type: "PALLET",
                     isActive: true,
                     capacity: capacity || 0,
-                    parentId: parentId ? parseInt(parentId) : null,
+                    parentId: parsedParentId,
                     brandRules: brandRuleId ? {
                         create: { brandId: brandRuleId }
                     } : undefined
@@ -116,6 +136,12 @@ export const createLocation = async (req, res) => {
             });
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         } else if (type === "Rak" || type === "RACK") {
+            const levelNames = (levels || []).map((l) => l.name);
+            const duplicateLevel = levelNames.find((n, i) => levelNames.indexOf(n) !== i);
+            if (duplicateLevel) {
+                return res.status(400).json({ message: `Nama shelf "${duplicateLevel}" duplikat di rak ini` });
+            }
+
             const newLocation = await prisma.location.create({
                 data: {
                     name,
@@ -144,7 +170,7 @@ export const createLocation = async (req, res) => {
                     type: "BOX",
                     isActive: true,
                     capacity: capacity || 0,
-                    parentId: parentId ? parseInt(parentId) : null,
+                    parentId: parsedParentId,
                     brandRules: brandRuleId ? {
                         create: { brandId: brandRuleId }
                     } : undefined
@@ -153,6 +179,9 @@ export const createLocation = async (req, res) => {
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         }
     } catch (error) {
+        if (error.code === 'P2002') {
+            return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
+        }
         console.error('Error in createLocation:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
@@ -170,6 +199,14 @@ export const updateLocation = async (req, res) => {
         const existing = await prisma.location.findUnique({ where: { id } });
         if (!existing) {
             return res.status(404).json({ message: 'Location not found' });
+        }
+
+        if (name !== existing.name) {
+            try {
+                await assertLocationNameAvailable(name, existing.parentId, id);
+            } catch (error) {
+                return res.status(error.statusCode || 400).json({ message: error.message });
+            }
         }
 
         const brandRuleId = await getBrandRuleId(brandRule);

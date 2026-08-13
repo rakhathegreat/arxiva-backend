@@ -2,14 +2,15 @@ import prisma from '../utils/prisma.js';
 import { createItemMutationWithRetry } from '../utils/mutation.util.js';
 import { formatLocationDisplay } from '../utils/location.util.js';
 
-async function safeGetOrCreateLocation(name, createData) {
-    let loc = await prisma.location.findUnique({ where: { name } });
+async function safeGetOrCreateLocation(name, createData = {}) {
+    const parentId = createData.parentId ?? null;
+    let loc = await prisma.location.findFirst({ where: { name, parentId } });
     if (!loc) {
         try {
             loc = await prisma.location.create({ data: { name, ...createData } });
         } catch (error) {
             if (error.code === 'P2002') {
-                loc = await prisma.location.findUnique({ where: { name } });
+                loc = await prisma.location.findFirst({ where: { name, parentId } });
             } else {
                 throw error;
             }
@@ -65,9 +66,9 @@ async function safeGetOrCreateMaterialModel(nama, materialCategoryId, brandId) {
 
 async function getLocationId(lokasiPenyimpanan) {
     if (!lokasiPenyimpanan || lokasiPenyimpanan === "Diluar") {
-        let loc = await prisma.location.findUnique({ where: { name: "Diluar" } });
+        let loc = await prisma.location.findFirst({ where: { name: "Diluar", parentId: null } });
         if (!loc) {
-            loc = await prisma.location.findUnique({ where: { name: "Keluar" } });
+            loc = await prisma.location.findFirst({ where: { name: "Keluar", parentId: null } });
         }
         if (!loc) {
             loc = await safeGetOrCreateLocation("Diluar", { type: "BOX", isActive: true });

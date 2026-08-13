@@ -285,7 +285,7 @@ model ItemMutation {
 /// Physical or logical storage location (hierarchical).
 model Location {
   id       Int          @id @default(autoincrement())
-  name     String       @unique
+  name     String
   type     LocationType
   capacity Int          @default(0) /// Maximum items allowed
   code     String?      @unique
@@ -308,6 +308,7 @@ model Location {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([parentId, name])
   @@index([parentId])
   @@index([type])
 }
