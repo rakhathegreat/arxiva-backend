@@ -197,14 +197,6 @@ export const updateLocation = async (req, res) => {
             return res.status(404).json({ message: 'Location not found' });
         }
 
-        if (name !== existing.name) {
-            try {
-                await assertLocationNameAvailable(name, existing.parentId, id);
-            } catch (error) {
-                return res.status(error.statusCode || 400).json({ message: error.message });
-            }
-        }
-
         const brandRuleId = await getBrandRuleId(brandRule);
 
         // Update location basic fields
