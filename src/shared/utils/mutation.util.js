@@ -22,10 +22,12 @@ export function generateMutationNumber(prefix = 'MUT') {
 
 /**
  * Creates an ItemMutation with automatic retry mechanism if a P2002 unique constraint collision occurs on mutationNumber.
- * 
+ *
  * @param {import('@prisma/client').PrismaClient|import('@prisma/client').Prisma.TransactionClient} dbClient - Prisma client or transaction instance
- * @param {Object} data - Mutation data object (excluding mutationNumber, or with data fields)
- * @param {string} [prefix='MUT'] - Prefix for mutation number
+ * @param {Object} data - Mutation data object. Bila `data.mutationNumber` diisi,
+ *   nilai itu dipakai apa adanya (mis. nomor berurutan server-generated);
+ *   bila tidak, nomor high-entropy di-generate dengan `prefix`.
+ * @param {string} [prefix='MUT'] - Prefix untuk mutation number
  * @param {Object} [options={}] - Additional Prisma options like include
  * @param {number} [maxRetries=3] - Maximum retry attempts
  * @returns {Promise<Object>} Created ItemMutation record
@@ -34,7 +36,7 @@ export async function createItemMutationWithRetry(dbClient, data, prefix = 'MUT'
     let attempts = 0;
     while (true) {
         try {
-            const mutationNumber = generateMutationNumber(prefix);
+            const mutationNumber = data.mutationNumber || generateMutationNumber(prefix);
             return await dbClient.itemMutation.create({
                 data: {
                     ...data,
@@ -73,8 +75,11 @@ export async function createItemMutationWithRetry(dbClient, data, prefix = 'MUT'
  * @param {number|null} [data.originLocationId] - Previous location ID (if any)
  * @param {number|null} [data.destinationLocationId] - New location ID (if any)
  * @param {string|null} [data.requestId] - Associated request ID (if any)
+ * @param {Object} [options={}] - `{ prefix }` untuk generator nomor (default 'MUT'),
+ *   atau `{ number }` untuk nomor eksplisit server-generated (mis. IN-YYYYMMDD-NNNN).
  */
-export async function logMutation(tx, data) {
+export async function logMutation(tx, data, options = {}) {
+    const prefix = options.prefix ?? 'MUT';
     // 1. Fetch item to snapshot data
     const item = await tx.item.findUnique({
         where: { id: data.itemId },
@@ -96,7 +101,7 @@ export async function logMutation(tx, data) {
     const destinationLocationName = await resolveLocationDisplay(tx, data.destinationLocationId, data.destinationLocationName || null);
 
     // 2. Create mutation log with retry logic and snapshotted fields
-    return await createItemMutationWithRetry(tx, {
+    const payload = {
         type: data.type,
         itemId: item.id,
         userId: data.userId,
@@ -104,10 +109,14 @@ export async function logMutation(tx, data) {
         brand: item.model?.brand?.nama || '-',
         category: item.model?.materialCategory?.nama || '-',
         paNumber: item.paNumber || '',
+        ticket: item.ticket || null,
         originLocationId: data.originLocationId || null,
         destinationLocationId: data.destinationLocationId || null,
         originLocationName,
         destinationLocationName,
         requestId: data.requestId || null,
-    }, 'MUT');
+    };
+    if (options.number) payload.mutationNumber = options.number;
+
+    return await createItemMutationWithRetry(tx, payload, prefix);
 }

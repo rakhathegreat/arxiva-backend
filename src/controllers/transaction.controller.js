@@ -1,22 +1,8 @@
-import prisma from '../utils/prisma.js';
-import { createItemMutationWithRetry } from '../utils/mutation.util.js';
-import { formatLocationDisplay } from '../utils/location.util.js';
-
-async function getUserId(mitra, reqUser) {
-    if (reqUser && reqUser.id) return reqUser.id;
-    if (mitra && mitra !== "KP Tasikmalaya") {
-        const u = await prisma.user.findFirst({
-            where: { OR: [{ username: mitra }, { profile: { nama: mitra } }] }
-        });
-        if (u) return u.id;
-    }
-    const firstUser = await prisma.user.findFirst({ where: { role: "ADMIN" } }) || await prisma.user.findFirst();
-    if (firstUser) return firstUser.id;
-    const newUser = await prisma.user.create({
-        data: { username: "admin_default", password: "password", role: "ADMIN" }
-    });
-    return newUser.id;
-}
+import prisma from '../shared/prisma.js';
+import { createItemMutationWithRetry } from '../shared/utils/mutation.util.js';
+import { formatLocationDisplay } from '../shared/utils/location.util.js';
+import { resolveActorId } from '../modules/identity/service.js';
+import { notifyAdmins } from '../modules/notification/service.js';
 
 export const getTransactions = async (req, res) => {
     try {
@@ -83,7 +69,7 @@ export const getTransactionById = async (req, res) => {
 
 export const createTransaction = async (req, res) => {
     try {
-        const { id, tanggal, nomor, kategori, status, sn, merek, asal, tujuan, mitra, keterangan } = req.body;
+        const { id, tanggal, nomor, kategori, status, sn, merek, asal, tujuan, mitra, keterangan, paNumber, ticket } = req.body;
 
         if (!sn || !nomor || !kategori) {
             return res.status(400).json({ message: 'SN, nomor, dan kategori wajib diisi' });
@@ -100,23 +86,18 @@ export const createTransaction = async (req, res) => {
                 }
             }
         });
+        // Dulu: fallback diam-diam ke "item pertama di DB" — atribusi ledger korup.
+        // Kini SN wajib cocok.
         if (!item) {
-            item = await prisma.item.findFirst({
-                include: {
-                    model: {
-                        include: {
-                            brand: true,
-                            materialCategory: true
-                        }
-                    }
-                }
-            });
-            if (!item) {
-                return res.status(404).json({ message: 'Item terkait tidak ditemukan di sistem' });
-            }
+            return res.status(404).json({ message: `Item dengan serial number ${sn} tidak ditemukan di sistem` });
         }
 
-        const userId = await getUserId(mitra, req.user);
+        let userId;
+        try {
+            userId = await resolveActorId(mitra, req.user);
+        } catch (actorError) {
+            return res.status(actorError.statusCode || 400).json({ message: actorError.message });
+        }
 
         let type = "MASUK";
         if (kategori === "Keluar" || kategori === "Digunakan") type = "KELUAR";
@@ -158,6 +139,7 @@ export const createTransaction = async (req, res) => {
                 brand: merek || item.model?.brand?.nama || "Unknown",
                 category: item.model?.materialCategory?.nama || "Unknown",
                 paNumber: nomor || "",
+                ticket: ticket || null,
                 originLocationId,
                 destinationLocationId,
                 originLocationName: asal || null,
@@ -167,6 +149,22 @@ export const createTransaction = async (req, res) => {
             'MUT',
             { include: { user: { include: { profile: true } }, item: true } }
         );
+
+        // Event: pengajuan barang keluar oleh MITRA → notify semua admin
+        // (menggantikan POST client-side yang salah target penerima)
+        if (type === 'KELUAR' && req.user?.role === 'MITRA') {
+            try {
+                const mitraName = req.user.profile?.nama || req.user.username;
+                await notifyAdmins({
+                    title: `Permintaan barang mitra ${mitraName}`,
+                    message: `${mitraName} mengajukan permintaan ${sn} keluar.${keterangan ? ` Keterangan: ${keterangan}` : ''}`,
+                    type: 'REQUEST',
+                    referenceId: item.id,
+                });
+            } catch (notifyError) {
+                console.error('Gagal membuat notifikasi permintaan:', notifyError);
+            }
+        }
 
         res.status(201).json({ message: 'Transaction created successfully', transaction: newTransaction });
     } catch (error) {

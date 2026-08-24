@@ -1,12 +1,6 @@
 import express from 'express';
-import {
-    getCategories,
-    getCategoryById,
-    createCategory,
-    updateCategory,
-    deleteCategory
-} from '../controllers/category.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { categoryHandlers } from '../modules/masterdata/handlers.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -27,7 +21,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/', getCategories);
+router.get('/', categoryHandlers.list);
 
 /**
  * @swagger
@@ -50,7 +44,7 @@ router.get('/', getCategories);
  *       500:
  *         description: Internal server error
  */
-router.get('/:id', getCategoryById);
+router.get('/:id', categoryHandlers.getById);
 
 /**
  * @swagger
@@ -84,7 +78,7 @@ router.get('/:id', getCategoryById);
  *       500:
  *         description: Internal server error
  */
-router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createCategory);
+router.post('/', authMiddleware, roleMiddleware(['ADMIN']), categoryHandlers.create);
 
 /**
  * @swagger
@@ -123,7 +117,7 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createCategory);
  *       500:
  *         description: Internal server error
  */
-router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateCategory);
+router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), categoryHandlers.update);
 
 /**
  * @swagger
@@ -146,6 +140,6 @@ router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateCategory);
  *       500:
  *         description: Internal server error
  */
-router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), deleteCategory);
+router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), categoryHandlers.remove);
 
 export default router;

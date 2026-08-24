@@ -1,12 +1,6 @@
 import express from 'express';
-import {
-    getMaterialModels,
-    getMaterialModelById,
-    createMaterialModel,
-    updateMaterialModel,
-    deleteMaterialModel
-} from '../controllers/materialModel.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { materialModelHandlers } from '../modules/masterdata/handlers.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -23,7 +17,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/', getMaterialModels);
+router.get('/', materialModelHandlers.list);
 
 /**
  * @swagger
@@ -46,7 +40,7 @@ router.get('/', getMaterialModels);
  *       500:
  *         description: Internal server error
  */
-router.get('/:id', getMaterialModelById);
+router.get('/:id', materialModelHandlers.getById);
 
 /**
  * @swagger
@@ -80,7 +74,7 @@ router.get('/:id', getMaterialModelById);
  *       500:
  *         description: Internal server error
  */
-router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createMaterialModel);
+router.post('/', authMiddleware, roleMiddleware(['ADMIN']), materialModelHandlers.create);
 
 /**
  * @swagger
@@ -119,7 +113,7 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createMaterialModel)
  *       500:
  *         description: Internal server error
  */
-router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateMaterialModel);
+router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), materialModelHandlers.update);
 
 /**
  * @swagger
@@ -142,6 +136,6 @@ router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateMaterialMode
  *       500:
  *         description: Internal server error
  */
-router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), deleteMaterialModel);
+router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), materialModelHandlers.remove);
 
 export default router;

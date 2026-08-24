@@ -1,15 +1,14 @@
 import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = process.env.JWT_SECRET || 'fallback_secret';
+import { config } from './config.js';
 
 export const generateToken = (user) => {
     return jwt.sign(
         { id: user.id, username: user.username, role: user.role },
-        JWT_SECRET,
+        config.jwtSecret,
         { expiresIn: '1d' }
     );
 };
 
 export const verifyToken = (token) => {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, config.jwtSecret);
 };

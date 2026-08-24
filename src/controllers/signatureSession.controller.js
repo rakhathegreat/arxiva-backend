@@ -1,10 +1,14 @@
-import prisma from '../utils/prisma.js';
+import prisma from '../shared/prisma.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { generateAndSaveBastPdf } from '../services/pdf.service.js';
-import { uploadBastToDrive } from '../services/google.js';
-import { logMutation } from '../utils/mutation.util.js';
+import {
+	resolveAdminIdentity,
+	buildAllocationSnapshot,
+	completeRequest,
+} from '../modules/requestflow/requestflow.service.js';
+import { finalizeDeliveryDocument } from '../modules/bastdoc/service.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -124,42 +128,28 @@ export const submitSignature = async (req, res) => {
             });
 
             if (request) {
-                // Find Admin user for Pihak Pertama
+                // Identitas Pihak Pertama — rantai tunggal modul requestflow
+                const deliveryDocument0 = request.deliveryDocument;
+                const { name: adminName, signatureUrl: adminSig } = await resolveAdminIdentity({
+                    deliveryDocument: deliveryDocument0,
+                    request,
+                });
                 let adminUser = null;
-                const allocAdmin = request.requestItems.flatMap(ri => ri.allocations).find(a => a.allocatedBy?.profile?.picSignatureUrl)?.allocatedBy;
-                if (allocAdmin) adminUser = allocAdmin;
-
-                if (!adminUser) {
-                    adminUser = await prisma.user.findFirst({
-                        where: { role: 'ADMIN', profile: { picSignatureUrl: { not: null } } },
-                        include: { profile: true }
-                    });
-                }
-                if (!adminUser) {
+                if (adminSig) {
                     adminUser = await prisma.user.findFirst({
                         where: { role: 'ADMIN' },
-                        include: { profile: true }
+                        include: { profile: true },
                     });
                 }
 
                 let deliveryDocument = request.deliveryDocument;
                 const now = new Date();
-                const adminName = deliveryDocument?.kpName || adminUser?.profile?.picName || adminUser?.profile?.nama || adminUser?.username || 'Admin';
-                const adminSig = deliveryDocument?.kpSignatureUrl || adminUser?.profile?.picSignatureUrl || null;
                 const ptName = request.requester?.profile?.nama || request.requester?.username || 'PT / Mitra';
                 const recipientName = signerName || request.requester?.profile?.nama || 'Pengambil';
 
                 const itemsAllocations = deliveryDocument?.itemsSnapshot
                     ? JSON.parse(deliveryDocument.itemsSnapshot)
-                    : request.requestItems.flatMap(item =>
-                        item.allocations.map(alloc => ({
-                            materialNumber: alloc.item?.model?.code || '-',
-                            materialName: alloc.item?.model?.nama || '-',
-                            serialNumber: alloc.item?.serialNumber || '-',
-                            quantity: 1,
-                            unit: 'Unit'
-                        }))
-                    );
+                    : buildAllocationSnapshot(request);
 
                 const finalBastData = {
                     id: request.id,
@@ -179,92 +169,27 @@ export const submitSignature = async (req, res) => {
                 };
 
                 const finalFilename = `bast-final-${request.requestNumber}.pdf`;
-                const { absoluteFilePath, relativeFilePath } = await generateAndSaveBastPdf(finalBastData, finalFilename);
+                const { relativeFilePath } = await generateAndSaveBastPdf(finalBastData, finalFilename);
 
-                // Google Drive Cloud Upload
-                let driveRes = { driveFileId: null, driveViewUrl: null };
-                try {
-                    driveRes = await uploadBastToDrive({ absoluteFilePath, fileName: finalFilename });
-                } catch (driveErr) {
-                    console.error("Google Drive sync failed, fallback to local:", driveErr.message);
-                }
+                // Finalisasi dokumen — satu pintu modul bastdoc (PDF lokal = sumber kebenaran, D11)
+                await finalizeDeliveryDocument({
+                    requestId: request.id,
+                    requestNumber: request.requestNumber,
+                    generatedById: adminUser?.id || request.requesterId,
+                    now,
+                    signerName: recipientName,
+                    signatureUrl,
+                    adminName,
+                    adminSignatureUrl: adminSig,
+                    filePath: relativeFilePath,
+                    itemsSnapshot: itemsAllocations,
+                });
 
-                if (!deliveryDocument) {
-                    deliveryDocument = await prisma.deliveryDocument.create({
-                        data: {
-                            requestId: request.id,
-                            documentNumber: `BAST/REQ/${request.requestNumber}`,
-                            filePath: relativeFilePath,
-                            finalFilePath: relativeFilePath,
-                            driveFileId: driveRes.driveFileId,
-                            driveViewUrl: driveRes.driveViewUrl,
-                            kpName: adminName,
-                            kpSignatureUrl: adminSig,
-                            kpSignedAt: now,
-                            signerName: recipientName,
-                            signerSignatureUrl: signatureUrl,
-                            picSignedAt: now,
-                            signedAt: now,
-                            itemsSnapshot: JSON.stringify(itemsAllocations),
-                            generatedById: adminUser?.id || request.requesterId
-                        }
-                    });
-                } else {
-                    await prisma.deliveryDocument.update({
-                        where: { id: deliveryDocument.id },
-                        data: {
-                            finalFilePath: relativeFilePath,
-                            driveFileId: driveRes.driveFileId || deliveryDocument.driveFileId,
-                            driveViewUrl: driveRes.driveViewUrl || deliveryDocument.driveViewUrl,
-                            kpName: adminName,
-                            kpSignatureUrl: adminSig,
-                            signerName: recipientName,
-                            signerSignatureUrl: signatureUrl,
-                            picSignedAt: now,
-                            signedAt: now,
-                            itemsSnapshot: JSON.stringify(itemsAllocations)
-                        }
-                    });
-                }
-
-                // 3. Terapkan pemindahan barang dan log mutasi
+                // 3. Penyelesaian request — SATU jalur modul requestflow (D9/D10):
+                //    kapasitas ditagih, lokasi mitra di-auto-provision bila absen.
                 await prisma.$transaction(async (tx) => {
-                    const partnerUserLocation = await tx.userLocation.findFirst({
-                        where: { userId: request.requesterId }
-                    });
-
-                    if (partnerUserLocation) {
-                        const destinationLocationId = partnerUserLocation.locationId;
-                        for (const reqItem of request.requestItems) {
-                            for (const allocation of reqItem.allocations) {
-                                const item = await tx.item.findUnique({ where: { id: allocation.itemId } });
-                                if (item) {
-                                    await tx.item.update({
-                                        where: { id: item.id },
-                                        data: {
-                                            status: 'digunakan',
-                                            locationId: destinationLocationId,
-                                            createdById: request.requesterId
-                                        }
-                                    });
-                                    await logMutation(tx, {
-                                        type: 'KELUAR',
-                                        itemId: item.id,
-                                        userId: adminUser?.id || request.requesterId,
-                                        originLocationId: item.locationId,
-                                        destinationLocationId: destinationLocationId,
-                                        requestId: request.id
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    // Update Request status to SELESAI
-                    await tx.request.update({
-                        where: { id: request.id },
-                        data: { status: 'SELESAI', completedAt: now }
-                    });
+                    const actor = { id: adminUser?.id || request.requesterId };
+                    await completeRequest(tx, request, actor);
                 });
             }
         }
@@ -293,10 +218,12 @@ export const submitSignature = async (req, res) => {
         res.json(updatedSession);
     } catch (error) {
         console.error('Error submitting signature:', error);
+        if (error.code === 'CAPACITY_FULL') {
+            return res.status(409).json({ message: error.message, reason: error.code });
+        }
         res.status(500).json({ message: 'Internal server error' });
     }
 };
-
 // GET /signature-session/:id/mobile
 export const renderMobileSignPage = async (req, res) => {
     try {

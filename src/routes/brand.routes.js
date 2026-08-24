@@ -1,12 +1,6 @@
 import express from 'express';
-import {
-    getBrands,
-    getBrandById,
-    createBrand,
-    updateBrand,
-    deleteBrand
-} from '../controllers/brand.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { brandHandlers } from '../modules/masterdata/handlers.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
 
@@ -23,7 +17,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.get('/', getBrands);
+router.get('/', brandHandlers.list);
 
 /**
  * @swagger
@@ -46,7 +40,7 @@ router.get('/', getBrands);
  *       500:
  *         description: Internal server error
  */
-router.get('/:id', getBrandById);
+router.get('/:id', brandHandlers.getById);
 
 /**
  * @swagger
@@ -80,7 +74,7 @@ router.get('/:id', getBrandById);
  *       500:
  *         description: Internal server error
  */
-router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createBrand);
+router.post('/', authMiddleware, roleMiddleware(['ADMIN']), brandHandlers.create);
 
 /**
  * @swagger
@@ -119,7 +113,7 @@ router.post('/', authMiddleware, roleMiddleware(['ADMIN']), createBrand);
  *       500:
  *         description: Internal server error
  */
-router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateBrand);
+router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), brandHandlers.update);
 
 /**
  * @swagger
@@ -142,6 +136,6 @@ router.put('/:id', authMiddleware, roleMiddleware(['ADMIN']), updateBrand);
  *       500:
  *         description: Internal server error
  */
-router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), deleteBrand);
+router.delete('/:id', authMiddleware, roleMiddleware(['ADMIN']), brandHandlers.remove);
 
 export default router;

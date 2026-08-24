@@ -1,4 +1,4 @@
-import prisma from "../utils/prisma.js";
+import prisma from '../shared/prisma.js';
 
 /**
  * Get all notifications for the authenticated user
@@ -16,36 +16,6 @@ export const getNotifications = async (req, res) => {
         res.status(200).json({ success: true, data: notifications });
     } catch (error) {
         console.error("Error fetching notifications:", error);
-        res.status(500).json({ success: false, message: "Internal server error", error: error.message });
-    }
-};
-
-/**
- * Add a new notification
- */
-export const addNotification = async (req, res) => {
-    try {
-        const { userId, title, message, type, referenceId, referenceType } = req.body;
-        
-        if (!userId || !title || !message) {
-            return res.status(400).json({ success: false, message: "userId, title, and message are required" });
-        }
-
-        const notification = await prisma.notification.create({
-            data: {
-                userId,
-                title,
-                message,
-                type: type || "SYSTEM",
-                isRead: false,
-                referenceId,
-                referenceType
-            }
-        });
-        
-        res.status(201).json({ success: true, data: notification });
-    } catch (error) {
-        console.error("Error adding notification:", error);
         res.status(500).json({ success: false, message: "Internal server error", error: error.message });
     }
 };

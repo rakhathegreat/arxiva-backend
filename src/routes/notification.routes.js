@@ -1,8 +1,8 @@
 import express from 'express';
-import { authMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware } from '../shared/middlewares/auth.middleware.js';
 import { 
     getNotifications, 
-    addNotification, 
+
     markAsRead, 
     markAllAsRead 
 } from '../controllers/notification.controller.js';
@@ -16,7 +16,6 @@ router.use(authMiddleware);
 router.get("/", getNotifications);
 
 // Add a new notification
-router.post("/", addNotification);
 
 // Mark all notifications as read for current user
 router.patch("/read-all", markAllAsRead);

@@ -1,5 +1,5 @@
- import { verifyToken } from '../utils/jwt.js';
-import prisma from '../utils/prisma.js';
+ import { verifyToken } from '../jwt.js';
+import prisma from '../prisma.js';
 
 export const authMiddleware = async (req, res, next) => {
     const token = req.headers.authorization || req.query.token;

@@ -1,110 +1,10 @@
-import prisma from '../utils/prisma.js';
-import { createItemMutationWithRetry } from '../utils/mutation.util.js';
-import { formatLocationDisplay } from '../utils/location.util.js';
-
-async function safeGetOrCreateLocation(name, createData = {}) {
-    const parentId = createData.parentId ?? null;
-    let loc = await prisma.location.findFirst({ where: { name, parentId } });
-    if (!loc) {
-        try {
-            loc = await prisma.location.create({ data: { name, ...createData } });
-        } catch (error) {
-            if (error.code === 'P2002') {
-                loc = await prisma.location.findFirst({ where: { name, parentId } });
-            } else {
-                throw error;
-            }
-        }
-    }
-    return loc;
-}
-
-async function safeGetOrCreateBrand(nama) {
-    let brand = await prisma.brand.findFirst({ where: { nama } });
-    if (!brand) {
-        try {
-            brand = await prisma.brand.create({
-                data: {
-                    nama,
-                    origin: "Global",
-                    identifier: nama.substring(0, 4).toUpperCase() + Math.floor(Math.random() * 1000)
-                }
-            });
-        } catch (error) {
-            if (error.code === 'P2002') {
-                brand = await prisma.brand.findFirst({ where: { nama } });
-            } else {
-                throw error;
-            }
-        }
-    }
-    return brand;
-}
-
-async function safeGetOrCreateMaterialModel(nama, materialCategoryId, brandId) {
-    let model = await prisma.materialModel.findFirst({
-        where: { nama, materialCategoryId, brandId }
-    });
-    if (!model) {
-        try {
-            const generatedCode = nama.replace(/\s+/g, '-').substring(0, 10).toUpperCase() + '-' + Math.floor(Math.random() * 10000);
-            model = await prisma.materialModel.create({
-                data: { nama, code: generatedCode, materialCategoryId, brandId }
-            });
-        } catch (error) {
-            if (error.code === 'P2002') {
-                model = await prisma.materialModel.findFirst({
-                    where: { nama }
-                });
-            } else {
-                throw error;
-            }
-        }
-    }
-    return model;
-}
-
-async function getLocationId(lokasiPenyimpanan) {
-    if (!lokasiPenyimpanan || lokasiPenyimpanan === "Diluar") {
-        let loc = await prisma.location.findFirst({ where: { name: "Diluar", parentId: null } });
-        if (!loc) {
-            loc = await prisma.location.findFirst({ where: { name: "Keluar", parentId: null } });
-        }
-        if (!loc) {
-            loc = await safeGetOrCreateLocation("Diluar", { type: "BOX", isActive: true });
-        }
-        return loc.id;
-    }
-
-    if (lokasiPenyimpanan.includes(" - ")) {
-        const [locName, lvlName] = lokasiPenyimpanan.split(" - ");
-        let loc = await safeGetOrCreateLocation(locName, { type: "RACK", isActive: true });
-        let child = await prisma.location.findFirst({ where: { parentId: loc.id, name: lvlName } });
-        if (!child) {
-            child = await safeGetOrCreateLocation(lvlName, { parentId: loc.id, type: "BOX", capacity: 50, isActive: true });
-        }
-        return child.id;
-    }
-
-    let loc = await safeGetOrCreateLocation(lokasiPenyimpanan, { type: "BOX", isActive: true, capacity: 50 });
-    return loc.id;
-}
-
-async function getUserId(mitra, reqUser) {
-    if (reqUser && reqUser.id) return reqUser.id;
-    if (mitra && mitra !== "KP Tasikmalaya") {
-        const u = await prisma.user.findFirst({
-            where: { OR: [{ username: mitra }, { profile: { nama: mitra } }] }
-        });
-        if (u) return u.id;
-    }
-    const firstUser = await prisma.user.findFirst({ where: { role: "ADMIN" } }) || await prisma.user.findFirst();
-    if (firstUser) return firstUser.id;
-    const newUser = await prisma.user.create({
-        data: { username: "admin_default", password: "password", role: "ADMIN" }
-    });
-    return newUser.id;
-}
+import prisma from '../shared/prisma.js';
+import { logMutation } from '../shared/utils/mutation.util.js';
+import { formatLocationDisplay } from '../shared/utils/location.util.js';
+import { getOrCreateCategory, getOrCreateBrand, getOrCreateMaterialModel } from '../modules/catalog/service.js';
+import { resolveLocationId, assertCapacityAvailableUnlessExit } from '../modules/storage/service.js';
+import { resolveActorId } from '../modules/identity/service.js';
+import { statusToEnum, enumToDisplay } from '../modules/items/service.js';
 
 export const getItems = async (req, res) => {
     try {
@@ -136,11 +36,7 @@ export const getItems = async (req, res) => {
 
         // Status Filter
         if (statusFilter && statusFilter !== 'all') {
-            let prismaStatus = "tersedia";
-            if (statusFilter === "Terdistribusi" || statusFilter === "Diluar") prismaStatus = "digunakan";
-            if (statusFilter === "Rusak") prismaStatus = "rusak";
-            if (statusFilter === "Hilang") prismaStatus = "hilang";
-            where.status = prismaStatus;
+            where.status = statusToEnum(statusFilter);
         }
 
         // Category Filter
@@ -218,12 +114,7 @@ export const getItems = async (req, res) => {
         const items = await prisma.item.findMany(queryOptions);
 
         const formattedItems = items.map(item => {
-            let statusUnit = "Tersedia";
-            if (item.status === "digunakan") {
-                statusUnit = item.paNumber ? "Digunakan" : "Terdistribusi";
-            }
-            if (item.status === "rusak") statusUnit = "Rusak";
-            if (item.status === "hilang") statusUnit = "Hilang";
+            const statusUnit = enumToDisplay(item.status, item.paNumber);
 
             let lokasiPenyimpanan = "Kardus";
             if (item.location) {
@@ -244,6 +135,9 @@ export const getItems = async (req, res) => {
                 tipe: item.model?.nama || "-",
                 model: item.model,
                 status: statusUnit,
+                kondisi: item.kondisi || "Baru",
+                paNumber: item.paNumber || null,
+                ticket: item.ticket || null,
                 lokasiPenyimpanan,
                 tanggalMasuk: item.entryDate ? item.entryDate.toISOString().slice(0, 10) : item.createdAt.toISOString().slice(0, 10),
                 tanggalKeluar: item.exitDate ? item.exitDate.toISOString().slice(0, 10) : "",
@@ -366,7 +260,7 @@ export const getItemHistory = async (req, res) => {
 
 export const createItem = async (req, res) => {
     try {
-        const { id, serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra } = req.body;
+        const { id, serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket } = req.body;
 
         if (!serialNumber || !kategori || !merek) {
             return res.status(400).json({ message: 'Serial number, kategori, dan merek wajib diisi' });
@@ -377,38 +271,36 @@ export const createItem = async (req, res) => {
             return res.status(400).json({ message: 'Serial number sudah terdaftar di sistem' });
         }
 
-        let category = await prisma.materialCategory.findFirst({ where: { nama: kategori } });
-        if (!category) {
-            let defaultType = await prisma.materialType.findFirst({ where: { nama: 'Lainnya' } });
-            if (!defaultType) defaultType = await prisma.materialType.create({ data: { nama: 'Lainnya' } });
-            category = await prisma.materialCategory.create({ data: { nama: kategori, typeId: defaultType.id, safetyStock: 5 } });
-        }
-
-        const brand = await safeGetOrCreateBrand(merek);
+        const category = await getOrCreateCategory(kategori);
+        const brand = await getOrCreateBrand(merek);
         const modelName = tipe || "Default";
-        const model = await safeGetOrCreateMaterialModel(modelName, category.id, brand.id);
-        const locationId = await getLocationId(lokasiPenyimpanan);
-        const createdById = await getUserId(mitra, req.user);
+        const model = await getOrCreateMaterialModel(modelName, category.id, brand.id);
+        const locationId = await resolveLocationId(lokasiPenyimpanan);
+        const createdById = await resolveActorId(mitra, req.user);
 
-        let prismaStatus = "tersedia";
-        if (status === "Diluar") prismaStatus = "digunakan";
-        if (status === "Rusak") prismaStatus = "rusak";
-        if (status === "Hilang") prismaStatus = "hilang";
+        const prismaStatus = statusToEnum(status);
 
         const entryDate = tanggalMasuk ? new Date(tanggalMasuk) : new Date();
         const exitDate = tanggalKeluar ? new Date(tanggalKeluar) : null;
 
         const itemId = id || crypto.randomUUID();
 
+        // Adapter tipis (ADR-0002): enforcement + ledger identik dengan intake —
+        // kapasitas ditagih, setiap pembuatan item menulis baris mutasi tunggal.
         let newItem;
-        if (status === "Rusak") {
+        try {
             newItem = await prisma.$transaction(async (tx) => {
+                await assertCapacityAvailableUnlessExit(tx, locationId);
+
                 const created = await tx.item.create({
                     data: {
                         id: itemId,
                         serialNumber,
                         modelId: model.id,
                         status: prismaStatus,
+                        kondisi: kondisi || "Baru",
+                        paNumber: paNumber || null,
+                        ticket: ticket || null,
                         locationId,
                         entryDate,
                         exitDate,
@@ -420,52 +312,34 @@ export const createItem = async (req, res) => {
                     }
                 });
 
-                await createItemMutationWithRetry(tx, {
-                    type: "RUSAK",
-                    itemId: itemId,
+                await logMutation(tx, {
+                    type: prismaStatus === 'rusak' ? 'RUSAK' : 'MASUK',
+                    itemId: created.id,
                     userId: createdById,
-                    serialNumber,
-                    brand: brand.nama,
-                    category: category.nama,
-                    paNumber: paNumber || "",
-                    originLocationId: locationId,
+                    originLocationId: null,
                     destinationLocationId: locationId,
-                    originLocationName: lokasiPenyimpanan || null,
-                    destinationLocationName: lokasiPenyimpanan || null,
-                }, 'DMG');
+                });
 
                 return created;
             });
-        } else {
-            newItem = await prisma.item.create({
-                data: {
-                    id: itemId,
-                    serialNumber,
-                    modelId: model.id,
-                    status: prismaStatus,
-                    locationId,
-                    entryDate,
-                    exitDate,
-                    createdById
-                },
-                include: {
-                    model: { include: { materialCategory: true, brand: true } },
-                    location: { include: { parent: true } }
-                }
-            });
+        } catch (error) {
+            if (error.code === 'CAPACITY_FULL') {
+                return res.status(409).json({ message: error.message, reason: error.code });
+            }
+            throw error;
         }
 
         res.status(201).json({ message: 'Item created successfully', item: newItem });
     } catch (error) {
         console.error('Error in createItem:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : 'Internal server error' });
     }
 };
 
 export const updateItem = async (req, res) => {
     try {
         const { id } = req.params;
-        const { serialNumber, kategori, merek, tipe, status, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber } = req.body;
+        const { serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket } = req.body;
 
         const item = await prisma.item.findUnique({ where: { id } });
         if (!item) {
@@ -485,48 +359,48 @@ export const updateItem = async (req, res) => {
             brandName = merek || currentModel.brand.nama;
             let modelName = tipe || currentModel.nama;
 
-            let category = await prisma.materialCategory.findFirst({ where: { nama: categoryName } });
-            if (!category) {
-                let defaultType = await prisma.materialType.findFirst({ where: { nama: 'Lainnya' } });
-                if (!defaultType) defaultType = await prisma.materialType.create({ data: { nama: 'Lainnya' } });
-                category = await prisma.materialCategory.create({ data: { nama: categoryName, typeId: defaultType.id, safetyStock: 5 } });
-            }
-
-            const brand = await safeGetOrCreateBrand(brandName);
-            const model = await safeGetOrCreateMaterialModel(modelName, category.id, brand.id);
+            const category = await getOrCreateCategory(categoryName);
+            const brand = await getOrCreateBrand(brandName);
+            const model = await getOrCreateMaterialModel(modelName, category.id, brand.id);
             modelId = model.id;
         }
 
-        const locationId = lokasiPenyimpanan ? await getLocationId(lokasiPenyimpanan) : item.locationId;
-        const createdById = mitra ? await getUserId(mitra, req.user) : item.createdById;
+        const locationId = lokasiPenyimpanan ? await resolveLocationId(lokasiPenyimpanan) : item.locationId;
+        const createdById = mitra ? await resolveActorId(mitra, req.user) : item.createdById;
 
         let prismaStatus = item.status;
         if (status) {
-            if (status === "Tersedia") prismaStatus = "tersedia";
-            if (status === "Diluar" || status === "Keluar" || status === "Digunakan") prismaStatus = "digunakan";
-            if (status === "Rusak") prismaStatus = "rusak";
-            if (status === "Hilang") prismaStatus = "hilang";
+            prismaStatus = statusToEnum(status, item.status);
         }
 
         const entryDate = tanggalMasuk ? new Date(tanggalMasuk) : item.entryDate;
         const exitDate = tanggalKeluar !== undefined ? (tanggalKeluar ? new Date(tanggalKeluar) : null) : item.exitDate;
 
         const isChangingToRusak = item.status !== 'rusak' && prismaStatus === 'rusak';
+        const isMovingLocation = locationId !== item.locationId;
 
         let updatedItem;
-        if (isChangingToRusak) {
+        try {
             updatedItem = await prisma.$transaction(async (tx) => {
+                // Enforcement identik intake: pindah lokasi ditagih kapasitasnya
+                // (kecuali ke pintu keluar logistik).
+                if (isMovingLocation) {
+                    await assertCapacityAvailableUnlessExit(tx, locationId);
+                }
+
                 const updated = await tx.item.update({
                     where: { id },
                     data: {
                         serialNumber: serialNumber || item.serialNumber,
                         modelId,
                         status: prismaStatus,
+                        kondisi: kondisi !== undefined ? kondisi : item.kondisi,
                         locationId,
                         entryDate,
                         exitDate,
                         createdById,
-                        paNumber: paNumber !== undefined ? paNumber : item.paNumber
+                        paNumber: paNumber !== undefined ? paNumber : item.paNumber,
+                        ticket: ticket !== undefined ? ticket : item.ticket
                     },
                     include: {
                         model: { include: { materialCategory: true, brand: true } },
@@ -534,44 +408,29 @@ export const updateItem = async (req, res) => {
                     }
                 });
 
-                await createItemMutationWithRetry(tx, {
-                    type: "RUSAK",
-                    itemId: id,
-                    userId: createdById,
-                    serialNumber: serialNumber || item.serialNumber,
-                    brand: brandName || "Unknown",
-                    category: categoryName || "Unknown",
-                    paNumber: paNumber !== undefined ? paNumber : item.paNumber || "",
-                    originLocationId: item.locationId,
-                    destinationLocationId: locationId,
-                }, 'DMG');
+                if (isChangingToRusak) {
+                    await logMutation(tx, {
+                        type: 'RUSAK',
+                        itemId: id,
+                        userId: createdById,
+                        originLocationId: item.locationId,
+                        destinationLocationId: locationId,
+                    });
+                }
 
                 return updated;
             });
-        } else {
-            updatedItem = await prisma.item.update({
-                where: { id },
-                data: {
-                    serialNumber: serialNumber || item.serialNumber,
-                    modelId,
-                    status: prismaStatus,
-                    locationId,
-                    entryDate,
-                    exitDate,
-                    createdById,
-                    paNumber: paNumber !== undefined ? paNumber : item.paNumber
-                },
-                include: {
-                    model: { include: { materialCategory: true, brand: true } },
-                    location: { include: { parent: true } }
-                }
-            });
+        } catch (error) {
+            if (error.code === 'CAPACITY_FULL') {
+                return res.status(409).json({ message: error.message, reason: error.code });
+            }
+            throw error;
         }
 
         res.json({ message: 'Item updated successfully', item: updatedItem });
     } catch (error) {
         console.error('Error in updateItem:', error);
-        res.status(500).json({ message: 'Internal server error' });
+        res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : 'Internal server error' });
     }
 };
 

@@ -6,7 +6,7 @@ import {
     toggleLocation,
     deleteLocation
 } from '../controllers/location.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
 

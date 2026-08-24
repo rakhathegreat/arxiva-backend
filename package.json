@@ -7,10 +7,12 @@
   "type": "module",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "node --watch --env-file=.env app.js",
     "start": "node app.js",
-    "seed": "node prisma/seeder.js"
+    "seed": "node prisma/seeder.js",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration"
   },
   "prisma": {
     "seed": "node prisma/seeder.js"
@@ -21,7 +23,6 @@
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "googleapis": "^173.0.0",
     "jsonwebtoken": "^9.0.3",
     "pdfmake": "^0.3.11",
     "prisma": "^6.19.3",
@@ -29,6 +30,7 @@
     "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "vitest": "^4.1.11"
   }
 }

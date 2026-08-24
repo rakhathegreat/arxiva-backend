@@ -1,4 +1,5 @@
-import prisma from '../src/utils/prisma.js';
+import prisma from '../src/shared/prisma.js';
+import { releaseAllocations } from '../src/modules/requestflow/requestflow.service.js';
 
 async function releaseOrphanAllocations() {
     const terminalStatuses = ['DITOLAK', 'DIBATALKAN'];
@@ -18,16 +19,8 @@ async function releaseOrphanAllocations() {
         if (allocationCount === 0) continue;
 
         await prisma.$transaction(async (tx) => {
-            const requestItemIds = request.requestItems.map(ri => ri.id);
-
-            await tx.requestAllocation.deleteMany({
-                where: { requestItemId: { in: requestItemIds } }
-            });
-
-            await tx.requestItem.updateMany({
-                where: { id: { in: requestItemIds } },
-                data: { fulfilledQuantity: 0 }
-            });
+            // Satu definisi pelepasan alokasi — sama dengan controller (M2)
+            await releaseAllocations(tx, request);
         });
 
         releasedCount += allocationCount;

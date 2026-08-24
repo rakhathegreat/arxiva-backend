@@ -1,8 +1,12 @@
 import express from 'express';
 import { getTransactions, getTransactionById, createTransaction, deleteTransaction } from '../controllers/transaction.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
+
+// Ledger adalah catatan audit — seluruh akses wajib ter-autentikasi;
+// penghapusan baris audit hanya untuk ADMIN.
+router.use(authMiddleware);
 
 /**
  * @swagger
@@ -117,6 +121,6 @@ router.post('/', createTransaction);
  *       500:
  *         description: Internal server error
  */
-router.delete('/:id', deleteTransaction);
+router.delete('/:id', roleMiddleware(['ADMIN']), deleteTransaction);
 
 export default router;

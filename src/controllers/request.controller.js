@@ -1,55 +1,20 @@
-import prisma from '../utils/prisma.js';
-import { logMutation } from '../utils/mutation.util.js';
+import prisma from '../shared/prisma.js';
 import { generateBastPdfStream, generateAndSaveBastPdf } from '../services/pdf.service.js';
+import {
+	releaseAllocations,
+	buildAllocationSnapshot,
+	resolveAdminIdentity,
+	completeRequest,
+} from '../modules/requestflow/requestflow.service.js';
+import { validateTransition } from '../modules/requestflow/rules.js';
+import { ensureDeliveryDocument } from '../modules/bastdoc/service.js';
+import { createNotification } from '../modules/notification/service.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const releaseRequestAllocations = async (tx, request) => {
-    const requestItemIds = request.requestItems.map(ri => ri.id);
-    if (requestItemIds.length === 0) return;
-
-    await tx.requestAllocation.deleteMany({
-        where: { requestItemId: { in: requestItemIds } }
-    });
-
-    await tx.requestItem.updateMany({
-        where: { id: { in: requestItemIds } },
-        data: { fulfilledQuantity: 0 }
-    });
-};
-
-const processRequestCompletionMutation = async (tx, request, user, destinationLocationId) => {
-    for (const reqItem of request.requestItems) {
-        for (const allocation of reqItem.allocations) {
-            const item = await tx.item.findUnique({ where: { id: allocation.itemId } });
-            const originLocationId = item.locationId;
-
-            // Perbarui barang: ubah status jadi digunakan, pindah ke lokasi partner, ganti pemilik
-            await tx.item.update({
-                where: { id: allocation.itemId },
-                data: {
-                    status: 'digunakan',
-                    locationId: destinationLocationId,
-                    createdById: request.requesterId
-                }
-            });
-
-            // Catat buku besar ledger mutasi
-            await logMutation(tx, {
-                type: 'KELUAR',
-                itemId: allocation.itemId,
-                userId: user.id,
-                originLocationId: originLocationId,
-                destinationLocationId: destinationLocationId,
-                requestId: request.id
-            });
-        }
-    }
-};
 
 // GET /requests
 export const getRequests = async (req, res) => {
@@ -83,6 +48,8 @@ export const getRequests = async (req, res) => {
             partnerCategory: r.requester?.profile?.partnerType || "Mitra",
             status: r.status,
             notes: r.notes || "-",
+            rejectionNotes: r.rejectionNotes || null,
+            adminRemarks: r.rejectionNotes || null,
             requestedAt: r.requestedAt,
             itemsCount: r.requestItems.reduce((acc, item) => acc + item.quantity, 0),
             allocatedCount: r.requestItems.reduce(
@@ -206,7 +173,7 @@ export const allocateItems = async (req, res) => {
 
         await prisma.$transaction(async (tx) => {
             // Reset existing allocations for this request to make this operation idempotent
-            await releaseRequestAllocations(tx, request);
+            await releaseAllocations(tx, request);
             request.requestItems.forEach(ri => ri.fulfilledQuantity = 0);
 
             for (const itemId of itemIds) {
@@ -259,7 +226,7 @@ export const allocateItems = async (req, res) => {
         if (error.code === 'P2002') {
             return res.status(400).json({ message: 'Double booking: Salah satu barang sudah dialokasikan ke request lain.' });
         }
-        res.status(500).json({ message: error.message || 'Internal server error' });
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
 
@@ -267,7 +234,7 @@ export const allocateItems = async (req, res) => {
 export const updateRequestStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body;
+        const { status, rejectionNotes } = req.body;
         const user = req.user;
 
         const validStatuses = ['DRAFT', 'MENUNGGU', 'SIAP', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
@@ -291,16 +258,17 @@ export const updateRequestStatus = async (req, res) => {
             return res.status(400).json({ message: 'Request sudah SELESAI dan dikunci. Data maupun status tidak dapat diubah lagi.' });
         }
 
-        // RBAC Checks
-        if (['SIAP', 'SELESAI', 'DITOLAK'].includes(status) && user.role !== 'ADMIN') {
-            return res.status(403).json({ message: 'Hanya admin yang dapat menyiapkan, menyelesaikan, atau menolak request' });
-        }
-        if (status === 'DIBATALKAN' && user.role !== 'ADMIN' && user.id !== request.requesterId) {
-            return res.status(403).json({ message: 'Anda hanya dapat membatalkan request milik sendiri' });
+        // RBAC + urutan transisi — satu aturan di modul requestflow
+        const transition = validateTransition(request.status, status, user.role, request.requesterId, user.id);
+        if (!transition.ok) {
+            return res.status(transition.httpStatus).json({ message: transition.message });
         }
 
         const dataToUpdate = { status };
         const now = new Date();
+        if (['DITOLAK', 'DIBATALKAN'].includes(status)) {
+            dataToUpdate.rejectionNotes = rejectionNotes || null;
+        }
         if (status === 'SIAP') {
             dataToUpdate.approvedAt = now;
             dataToUpdate.processedAt = now;
@@ -309,16 +277,9 @@ export const updateRequestStatus = async (req, res) => {
 
         // Auto-generate BAST Draft PDF when status becomes SIAP
         if (status === 'SIAP') {
-            let adminName = user.profile?.picName || user.profile?.nama || user.username || 'Admin';
-            let adminSigUrl = user.profile?.picSignatureUrl || null;
-
-            if (!adminSigUrl) {
-                const fallbackAdmin = await prisma.userProfile.findFirst({ where: { picSignatureUrl: { not: null } } });
-                if (fallbackAdmin) {
-                    adminSigUrl = fallbackAdmin.picSignatureUrl;
-                    if (!adminName) adminName = fallbackAdmin.picName || fallbackAdmin.nama;
-                }
-            }
+            const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
+                actingAdmin: user,
+            });
 
             const reqFull = await prisma.request.findUnique({
                 where: { id },
@@ -343,15 +304,7 @@ export const updateRequestStatus = async (req, res) => {
                 }
             });
 
-            const itemsSnapshotData = reqFull.requestItems.flatMap(item =>
-                item.allocations.map(alloc => ({
-                    materialNumber: alloc.item?.model?.code || '-',
-                    materialName: alloc.item?.model?.nama || '-',
-                    serialNumber: alloc.item?.serialNumber || '-',
-                    quantity: 1,
-                    unit: 'Unit'
-                }))
-            );
+            const itemsSnapshotData = buildAllocationSnapshot(reqFull);
 
             const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
 
@@ -399,49 +352,35 @@ export const updateRequestStatus = async (req, res) => {
 
         if (status === 'SELESAI') {
             const updated = await prisma.$transaction(async (tx) => {
-                const partnerUserLocation = await tx.userLocation.findFirst({
-                    where: { userId: request.requesterId },
-                    include: { location: true }
-                });
-                if (!partnerUserLocation) throw new Error("Lokasi partner tidak ditemukan");
-
-                const destinationLocationId = partnerUserLocation.locationId;
-
-                // 1. Lock baris lokasi untuk pengecekan kapasitas yang aman dari race condition (Pessimistic Locking)
-                const locations = await tx.$queryRaw`SELECT capacity FROM Location WHERE id = ${destinationLocationId} FOR UPDATE`;
-                if (!locations || locations.length === 0) throw new Error("Lokasi tujuan tidak valid");
-                const capacity = locations[0].capacity;
-
-                const currentItemsCount = await tx.item.count({ where: { locationId: destinationLocationId } });
-
-                let incomingItemsCount = 0;
-                for (const reqItem of request.requestItems) {
-                    incomingItemsCount += reqItem.allocations.length;
-                }
-
-                if (capacity > 0 && currentItemsCount + incomingItemsCount > capacity) {
-                    throw new Error("Kapasitas lokasi tidak mencukupi untuk menampung alokasi barang ini");
-                }
-
+                // SATU jalur completion (D9/D10): lokasi mitra + kapasitas +
+                // status + transfer item + ledger KELUAR.
+                return completeRequest(tx, request, user);
+            });
+            return res.json({ message: 'Request status updated and items mutated', request: updated });
+        } else if (['DITOLAK', 'DIBATALKAN'].includes(status)) {
+            const updated = await prisma.$transaction(async (tx) => {
+                await releaseAllocations(tx, request);
                 const updatedReq = await tx.request.update({
                     where: { id },
                     data: dataToUpdate,
                     include: { requester: { include: { profile: true } } }
                 });
 
-                // 2. Terapkan pemindahan barang dan log mutasi
-                await processRequestCompletionMutation(tx, request, user, destinationLocationId);
+                // Event: penolakan/pembatalan → notify requester
+                await createNotification(
+                    {
+                        userId: request.requesterId,
+                        title: status === 'DITOLAK' ? 'Permintaan ditolak' : 'Permintaan dibatalkan',
+                        message: `Permintaan ${request.requestNumber} ${status === 'DITOLAK' ? 'ditolak' : 'dibatalkan'}.${
+                            rejectionNotes ? ` Catatan: ${rejectionNotes}` : ''
+                        }`,
+                        type: 'REQUEST',
+                        referenceId: request.id,
+                    },
+                    tx
+                );
+
                 return updatedReq;
-            });
-            return res.json({ message: 'Request status updated and items mutated', request: updated });
-        } else if (['DITOLAK', 'DIBATALKAN'].includes(status)) {
-            const updated = await prisma.$transaction(async (tx) => {
-                await releaseRequestAllocations(tx, request);
-                return tx.request.update({
-                    where: { id },
-                    data: dataToUpdate,
-                    include: { requester: { include: { profile: true } } }
-                });
             });
             return res.json({ message: 'Request status updated and allocations released', request: updated });
         } else {
@@ -454,7 +393,7 @@ export const updateRequestStatus = async (req, res) => {
         }
     } catch (error) {
         console.error('Error in updateRequestStatus:', error);
-        res.status(500).json({ message: error.message || 'Internal server error' });
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
 
@@ -509,19 +448,16 @@ export const downloadBast = async (req, res) => {
             return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus SIAP atau SELESAI' });
         }
 
-        // Auto-create DeliveryDocument jika belum ada
-        let deliveryDocument = request.deliveryDocument;
-        if (!deliveryDocument) {
-            deliveryDocument = await prisma.deliveryDocument.create({
-                data: {
-                    requestId: request.id,
-                    documentNumber: `BAST/REQ/${request.requestNumber}`,
-                    filePath: '',
-                    generatedById: user.id
-                },
-                include: { generatedBy: { include: { profile: true } } }
-            });
-        }
+        // Auto-create DeliveryDocument jika belum ada — satu pintu modul bastdoc
+        let deliveryDocument = await ensureDeliveryDocument({
+            requestId: request.id,
+            requestNumber: request.requestNumber,
+            generatedById: user.id,
+        });
+        deliveryDocument = await prisma.deliveryDocument.findUnique({
+            where: { requestId: request.id },
+            include: { generatedBy: { include: { profile: true } } },
+        });
 
         res.json({
             message: 'Data BAST berhasil dimuat',
@@ -536,20 +472,12 @@ export const downloadBast = async (req, res) => {
                 completedAt: request.completedAt,
                 requesterName: request.requester?.profile?.nama || request.requester?.username || 'Unknown',
                 generatedByName: deliveryDocument.generatedBy?.profile?.picName || deliveryDocument.generatedBy?.profile?.nama || deliveryDocument.generatedBy?.username || 'Admin',
-                allocations: request.requestItems.flatMap(item =>
-                    item.allocations.map(alloc => ({
-                        materialNumber: alloc.item?.model?.code || '-',
-                        materialName: alloc.item?.model?.nama || '-',
-                        serialNumber: alloc.item?.serialNumber || '-',
-                        quantity: 1,
-                        unit: 'Unit'
-                    }))
-                )
+                allocations: buildAllocationSnapshot(request)
             }
         });
     } catch (error) {
         console.error('Error in downloadBast:', error);
-        res.status(500).json({ message: error.message || 'Internal server error' });
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
 
@@ -604,19 +532,16 @@ export const downloadBastPdf = async (req, res) => {
             return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus SIAP atau SELESAI' });
         }
 
-        // Auto-create DeliveryDocument jika belum ada
-        let deliveryDocument = request.deliveryDocument;
-        if (!deliveryDocument) {
-            deliveryDocument = await prisma.deliveryDocument.create({
-                data: {
-                    requestId: request.id,
-                    documentNumber: `BAST/REQ/${request.requestNumber}`,
-                    filePath: '',
-                    generatedById: user.id
-                },
-                include: { generatedBy: { include: { profile: true } } }
-            });
-        }
+        // Auto-create DeliveryDocument jika belum ada — satu pintu modul bastdoc
+        let deliveryDocument = await ensureDeliveryDocument({
+            requestId: request.id,
+            requestNumber: request.requestNumber,
+            generatedById: user.id,
+        });
+        deliveryDocument = await prisma.deliveryDocument.findUnique({
+            where: { requestId: request.id },
+            include: { generatedBy: { include: { profile: true } } },
+        });
 
         // If static file exists, stream directly for legal immutability
         if (deliveryDocument.finalFilePath && request.status === 'SELESAI') {
@@ -635,40 +560,17 @@ export const downloadBastPdf = async (req, res) => {
             }
         }
 
-        // Determine Admin User (Pihak Pertama) Name and Signature from frozen snapshot first
-        let adminName = deliveryDocument.kpName;
-        let adminSigUrl = deliveryDocument.kpSignatureUrl;
-
-        // Fallback ONLY if snapshot was never stored
-        if (!adminName || !adminSigUrl) {
-            const genAdmin = deliveryDocument.generatedBy?.profile;
-            if (!adminName) adminName = genAdmin?.picName || genAdmin?.nama || deliveryDocument.generatedBy?.username || 'Admin';
-            if (!adminSigUrl) adminSigUrl = genAdmin?.picSignatureUrl || null;
-        }
-
-        if (!adminSigUrl || !adminName) {
-            const fallbackAdminProfile = await prisma.userProfile.findFirst({
-                where: { picSignatureUrl: { not: null } }
-            });
-            if (fallbackAdminProfile) {
-                if (!adminSigUrl) adminSigUrl = fallbackAdminProfile.picSignatureUrl;
-                if (!adminName) adminName = fallbackAdminProfile.picName || fallbackAdminProfile.nama;
-            }
-        }
+        // Identitas Pihak Pertama — rantai tunggal dari modul requestflow
+        const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
+            deliveryDocument,
+            request,
+        });
 
         const ptName = request.requester?.profile?.nama || request.requester?.username || 'PT / Mitra';
 
         const allocationsData = deliveryDocument.itemsSnapshot
             ? JSON.parse(deliveryDocument.itemsSnapshot)
-            : request.requestItems.flatMap(item =>
-                item.allocations.map(alloc => ({
-                    materialNumber: alloc.item?.model?.code || '-',
-                    materialName: alloc.item?.model?.nama || '-',
-                    serialNumber: alloc.item?.serialNumber || '-',
-                    quantity: 1,
-                    unit: 'Unit'
-                }))
-            );
+            : buildAllocationSnapshot(request);
 
         // Format data to fit BAST template structure
         const partnerType = request.requester?.profile?.partnerType || 'gangguan';
@@ -703,7 +605,7 @@ export const downloadBastPdf = async (req, res) => {
         pdfStream.end();
     } catch (error) {
         console.error('Error in downloadBastPdf:', error);
-        res.status(500).json({ message: error.message || 'Internal server error' });
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
 
@@ -791,17 +693,11 @@ export const signBast = async (req, res) => {
             return res.status(404).json({ message: 'Request tidak ditemukan' });
         }
 
-        let deliveryDocument = request.deliveryDocument;
-        if (!deliveryDocument) {
-            deliveryDocument = await prisma.deliveryDocument.create({
-                data: {
-                    requestId: request.id,
-                    documentNumber: `BAST/REQ/${request.requestNumber}`,
-                    filePath: '',
-                    generatedById: user.id
-                }
-            });
-        }
+        const deliveryDocument = await ensureDeliveryDocument({
+            requestId: request.id,
+            requestNumber: request.requestNumber,
+            generatedById: user.id,
+        });
 
         const now = new Date();
         const updateData = {};
@@ -825,37 +721,8 @@ export const signBast = async (req, res) => {
 
         if (isFullySigned) {
             const updatedRequest = await prisma.$transaction(async (tx) => {
-                const partnerUserLocation = await tx.userLocation.findFirst({
-                    where: { userId: request.requesterId },
-                    include: { location: true }
-                });
-                if (!partnerUserLocation) throw new Error("Lokasi partner tidak ditemukan");
-
-                const destinationLocationId = partnerUserLocation.locationId;
-
-                const locations = await tx.$queryRaw`SELECT capacity FROM Location WHERE id = ${destinationLocationId} FOR UPDATE`;
-                if (!locations || locations.length === 0) throw new Error("Lokasi tujuan tidak valid");
-                const capacity = locations[0].capacity;
-
-                const currentItemsCount = await tx.item.count({ where: { locationId: destinationLocationId } });
-
-                let incomingItemsCount = 0;
-                for (const reqItem of request.requestItems) {
-                    incomingItemsCount += reqItem.allocations.length;
-                }
-
-                if (capacity > 0 && currentItemsCount + incomingItemsCount > capacity) {
-                    throw new Error("Kapasitas lokasi tidak mencukupi untuk menampung alokasi barang ini");
-                }
-
-                const updatedReq = await tx.request.update({
-                    where: { id: request.id },
-                    data: { status: 'SELESAI' }
-                });
-
-                await processRequestCompletionMutation(tx, request, user, destinationLocationId);
-
-                return updatedReq;
+                // SATU jalur completion (D9/D10) — sama dengan endpoint status.
+                return completeRequest(tx, request, user);
             });
             requestStatus = updatedRequest.status;
         }
@@ -868,7 +735,10 @@ export const signBast = async (req, res) => {
         });
     } catch (error) {
         console.error('Error in signBast:', error);
-        res.status(500).json({ message: error.message || 'Internal server error' });
+        if (error.code === 'CAPACITY_FULL') {
+            return res.status(409).json({ message: error.message, reason: error.code });
+        }
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
 

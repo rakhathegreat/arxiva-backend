@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import prisma from '../utils/prisma.js';
+import prisma from '../shared/prisma.js';
 
 // GET /users
 export const getUsers = async (req, res) => {

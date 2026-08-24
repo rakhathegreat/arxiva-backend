@@ -222,7 +222,10 @@ model Item {
 
   status Status @default(tersedia)
 
+  kondisi String @default("Baru")
+
   paNumber String? /// Property/Asset number assigned by organization
+  ticket   String? /// Trouble ticket reference for damaged items
 
   locationId Int?
   location   Location? @relation(fields: [locationId], references: [id])
@@ -261,6 +264,7 @@ model ItemMutation {
   brand        String /// Snapshotted brand
   category     String /// Snapshotted category
   paNumber     String /// Snapshotted Property/Asset number
+  ticket       String? /// Snapshotted trouble ticket reference
 
   originLocationId      Int?
   destinationLocationId Int?
@@ -356,6 +360,8 @@ model Request {
   status RequestStatus @default(MENUNGGU)
 
   notes String?
+
+  rejectionNotes String? /// Admin note recorded when the request is rejected or cancelled
 
   requestedAt DateTime @default(now())
 

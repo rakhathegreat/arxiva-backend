@@ -1,6 +1,6 @@
 import express from 'express';
 import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, downloadBastDraftPdf, downloadBastSignedPdf, signBast } from '../controllers/request.controller.js';
-import { authMiddleware, roleMiddleware } from '../middlewares/auth.middleware.js';
+import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
 
