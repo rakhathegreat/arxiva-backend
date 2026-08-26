@@ -169,6 +169,9 @@ model MaterialModel {
   code String @unique
   nama String @unique
 
+  /// Keterangan bebas tentang model material ini.
+  deskripsi String?
+
   materialCategoryId Int
   materialCategory   MaterialCategory @relation(fields: [materialCategoryId], references: [id])
 

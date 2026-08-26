@@ -221,6 +221,15 @@ export const allocateItems = async (req, res) => {
             }
         });
 
+        // Komposisi berubah → sinkronkan BAST draft bila sudah terbit (status SIAP).
+        if (request.status === 'SIAP') {
+            try {
+                await regenerateDraftBast(id, user);
+            } catch (draftErr) {
+                console.error('Gagal meregenerasi BAST draft:', draftErr);
+            }
+        }
+
         res.json({ message: 'Alokasi berhasil' });
     } catch (error) {
         console.error('Error in allocateItems:', error);
@@ -230,6 +239,83 @@ export const allocateItems = async (req, res) => {
         res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
+
+
+/** Regenerasi PDF BAST draft + snapshot alokasi terkini (dipanggil saat SIAP
+ *  maupun setelah komposisi alokasi berubah selama status masih SIAP). */
+async function regenerateDraftBast(requestId, user) {
+    const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
+        actingAdmin: user,
+    });
+
+    const reqFull = await prisma.request.findUnique({
+        where: { id: requestId },
+        include: {
+            requester: { include: { profile: true } },
+            requestItems: {
+                include: {
+                    materialCategory: true,
+                    brand: true,
+                    model: true,
+                    allocations: {
+                        include: {
+                            item: {
+                                include: {
+                                    model: { include: { brand: true, materialCategory: true } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    const itemsSnapshotData = buildAllocationSnapshot(reqFull);
+
+    const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
+
+    const draftBastData = {
+        id: reqFull.id,
+        requestNumber: reqFull.requestNumber,
+        title: reqFull.title,
+        status: 'SIAP',
+        notes: reqFull.notes,
+        requestedAt: reqFull.requestedAt,
+        processedAt: new Date(),
+        completedAt: null,
+        partnerType: reqFull.requester?.profile?.partnerType || 'gangguan',
+        requesterName: ptName,
+        picName: ptName,
+        picSignatureUrl: null, // Unsigned Draft
+        generatedByName: adminName,
+        kpSignatureUrl: adminSigUrl,
+        allocations: itemsSnapshotData
+    };
+
+    const draftFilename = `bast-draft-${reqFull.requestNumber}.pdf`;
+    const { relativeFilePath } = await generateAndSaveBastPdf(draftBastData, draftFilename);
+
+    await prisma.deliveryDocument.upsert({
+        where: { requestId: requestId },
+        create: {
+            requestId: requestId,
+            documentNumber: `BAST/REQ/${reqFull.requestNumber}`,
+            filePath: relativeFilePath,
+            kpName: adminName,
+            kpSignatureUrl: adminSigUrl,
+            kpSignedAt: new Date(),
+            itemsSnapshot: JSON.stringify(itemsSnapshotData),
+            generatedById: user.id
+        },
+        update: {
+            filePath: relativeFilePath,
+            kpName: adminName,
+            kpSignatureUrl: adminSigUrl,
+            itemsSnapshot: JSON.stringify(itemsSnapshotData)
+        }
+    });
+}
 
 // PUT /requests/:id/status
 export const updateRequestStatus = async (req, res) => {
@@ -276,80 +362,9 @@ export const updateRequestStatus = async (req, res) => {
         }
         if (status === 'SELESAI') dataToUpdate.completedAt = now;
 
-        // Auto-generate BAST Draft PDF when status becomes SIAP
+        // Auto-generate / perbarui BAST Draft saat status menjadi SIAP
         if (status === 'SIAP') {
-            const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
-                actingAdmin: user,
-            });
-
-            const reqFull = await prisma.request.findUnique({
-                where: { id },
-                include: {
-                    requester: { include: { profile: true } },
-                    requestItems: {
-                        include: {
-                            materialCategory: true,
-                            brand: true,
-                            model: true,
-                            allocations: {
-                                include: {
-                                    item: {
-                                        include: {
-                                            model: { include: { brand: true, materialCategory: true } }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-
-            const itemsSnapshotData = buildAllocationSnapshot(reqFull);
-
-            const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
-
-            const draftBastData = {
-                id: reqFull.id,
-                requestNumber: reqFull.requestNumber,
-                title: reqFull.title,
-                status: 'SIAP',
-                notes: reqFull.notes,
-                requestedAt: reqFull.requestedAt,
-                processedAt: now,
-                completedAt: null,
-                partnerType: reqFull.requester?.profile?.partnerType || 'gangguan',
-                requesterName: ptName,
-                picName: ptName,
-                picSignatureUrl: null, // Unsigned Draft
-                generatedByName: adminName,
-                kpSignatureUrl: adminSigUrl,
-                allocations: itemsSnapshotData
-            };
-
-            const draftFilename = `bast-draft-${reqFull.requestNumber}.pdf`;
-            const { relativeFilePath } = await generateAndSaveBastPdf(draftBastData, draftFilename);
-
-            await prisma.deliveryDocument.upsert({
-                where: { requestId: id },
-                create: {
-                    requestId: id,
-                    documentNumber: `BAST/REQ/${reqFull.requestNumber}`,
-                    filePath: relativeFilePath,
-                    kpName: adminName,
-                    kpSignatureUrl: adminSigUrl,
-                    kpSignedAt: now,
-                    itemsSnapshot: JSON.stringify(itemsSnapshotData),
-                    generatedById: user.id
-                },
-                update: {
-                    filePath: relativeFilePath,
-                    kpName: adminName,
-                    kpSignatureUrl: adminSigUrl,
-                    kpSignedAt: now,
-                    itemsSnapshot: JSON.stringify(itemsSnapshotData)
-                }
-            });
+            await regenerateDraftBast(id, user);
         }
 
         if (status === 'SELESAI') {

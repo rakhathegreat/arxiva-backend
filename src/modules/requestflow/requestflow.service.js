@@ -33,7 +33,8 @@ export function buildAllocationSnapshot(request) {
 	return request.requestItems.flatMap((item) =>
 		item.allocations.map((alloc) => ({
 			materialNumber: alloc.item?.model?.code || '-',
-			materialName: alloc.item?.model?.nama || '-',
+			// Nama barang pada dokumen memakai deskripsi model bila ada.
+			materialName: alloc.item?.model?.deskripsi || alloc.item?.model?.nama || '-',
 			serialNumber: alloc.item?.serialNumber || '-',
 			quantity: 1,
 			unit: 'Unit',

@@ -92,14 +92,14 @@ export const materialModelHandlers = makeMasterDataCrud({
 			if (!nama || !materialCategoryId || !brandId) {
 				return { error: { status: 400, message: 'Nama, materialCategoryId, and brandId are required' } };
 			}
-			return {
-				data: {
-					nama,
-					code: code || generateModelCode(nama),
-					materialCategoryId: parseInt(materialCategoryId, 10),
-					brandId: parseInt(brandId, 10),
-				},
+			const data = {
+				nama,
+				code: code || generateModelCode(nama),
+				materialCategoryId: parseInt(materialCategoryId, 10),
+				brandId: parseInt(brandId, 10),
 			};
+			if (body.deskripsi !== undefined) data.deskripsi = body.deskripsi;
+			return { data };
 		},
 		async validate(body) {
 			const categoryId = parseInt(body.materialCategoryId, 10);
@@ -140,6 +140,7 @@ export const materialModelHandlers = makeMasterDataCrud({
 			const data = {};
 			if (nama) data.nama = nama;
 			if (body.code) data.code = body.code;
+			if (body.deskripsi !== undefined) data.deskripsi = body.deskripsi;
 			if (body.materialCategoryId) data.materialCategoryId = parseInt(body.materialCategoryId, 10);
 			if (body.brandId) data.brandId = parseInt(body.brandId, 10);
 			return data;

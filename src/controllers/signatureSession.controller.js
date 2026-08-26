@@ -148,9 +148,9 @@ export const submitSignature = async (req, res) => {
                 const ptName = request.requester?.profile?.nama || request.requester?.username || 'PT / Mitra';
                 const recipientName = signerName || request.requester?.profile?.nama || 'Pengambil';
 
-                const itemsAllocations = deliveryDocument?.itemsSnapshot
-                    ? JSON.parse(deliveryDocument.itemsSnapshot)
-                    : buildAllocationSnapshot(request);
+                // Snapshot SELALU dibangun dari komposisi alokasi terkini —
+                // draft lama bisa basi bila alokasi berubah setelah SIAP.
+                const itemsAllocations = buildAllocationSnapshot(request);
 
                 const finalBastData = {
                     id: request.id,
