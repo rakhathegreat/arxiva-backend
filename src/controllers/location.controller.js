@@ -1,4 +1,6 @@
 import prisma from '../shared/prisma.js';
+import { assertCapacityAvailable } from '../modules/storage/service.js';
+import { createSheetForLevel, updateSheetName, deleteSheet } from '../services/sheet.service.js';
 
 const getBrandRuleId = async (brandName) => {
     if (!brandName || brandName === "Campuran") return null;
@@ -23,13 +25,24 @@ const assertLocationNameAvailable = async (name, parentId = null, excludeId = nu
     }
 };
 
+
+/** Buatkan spreadsheet lokasi & simpan link-nya (best-effort; gagal → tetap tanpa QR). */
+const attachSheetToLocation = async (locationId, displayName) => {
+    const { sheetId, sheetUrl } = await createSheetForLevel(displayName);
+    if (!sheetUrl) return;
+    try {
+        await prisma.location.update({ where: { id: locationId }, data: { sheetId, sheetUrl } });
+    } catch (error) {
+        console.error('Error attaching sheet to location:', error.message);
+    }
+};
 // GET /locations
 export const getLocations = async (req, res) => {
     try {
         const locations = await prisma.location.findMany({
             where: {
                 name: {
-                    notIn: ["Keluar", "Diluar"]
+                    notIn: ["Keluar", "Diluar", "Digunakan", "Terdistribusi", "Rusak", "Hilang"]
                 },
                 type: {
                     notIn: ["PARTNER", "BRANCH"]
@@ -64,7 +77,7 @@ export const getLocations = async (req, res) => {
                         usedCapacity: lvl.items ? lvl.items.length : 0,
                         brandRule: lvl.brandRules && lvl.brandRules.length > 0 ? lvl.brandRules[0].brand.nama : "Campuran",
                         isActive: lvl.isActive,
-                        sheetUrl: null
+                        sheetUrl: lvl.sheetUrl
                     }))
                 };
             } else if (loc.type === "PALLET") {
@@ -77,7 +90,7 @@ export const getLocations = async (req, res) => {
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
                     brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
-                    sheetUrl: null
+                    sheetUrl: loc.sheetUrl
                 };
             } else {
                 return {
@@ -89,7 +102,7 @@ export const getLocations = async (req, res) => {
                     capacity: loc.capacity,
                     usedCapacity: loc.items ? loc.items.length : 0,
                     brandRule: loc.brandRules && loc.brandRules.length > 0 ? loc.brandRules[0].brand.nama : "Campuran",
-                    sheetUrl: null
+                    sheetUrl: loc.sheetUrl
                 };
             }
         });
@@ -133,6 +146,7 @@ export const createLocation = async (req, res) => {
                     } : undefined
                 }
             });
+            await attachSheetToLocation(newLocation.id, name);
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         } else if (type === "Rak" || type === "RACK") {
             const levelNames = (levels || []).map((l) => l.name);
@@ -161,6 +175,9 @@ export const createLocation = async (req, res) => {
                 },
                 include: { children: true }
             });
+            for (const child of newLocation.children) {
+                await attachSheetToLocation(child.id, `${name} - ${child.name}`);
+            }
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         } else {
             const newLocation = await prisma.location.create({
@@ -175,6 +192,7 @@ export const createLocation = async (req, res) => {
                     } : undefined
                 }
             });
+            await attachSheetToLocation(newLocation.id, name);
             return res.status(201).json({ message: 'Location created successfully', location: newLocation });
         }
     } catch (error) {
@@ -189,11 +207,27 @@ export const createLocation = async (req, res) => {
 export const updateLocation = async (req, res) => {
     try {
         const id = parseInt(req.params.id);
-        const { capacity, brandRule } = req.body;
+        const { name, capacity, brandRule } = req.body;
 
-        const existing = await prisma.location.findUnique({ where: { id } });
+        const existing = await prisma.location.findUnique({
+            where: { id },
+            select: { id: true, name: true, parentId: true, capacity: true, sheetId: true },
+        });
         if (!existing) {
             return res.status(404).json({ message: 'Location not found' });
+        }
+
+        // Nama opsional — bila dikirim & berubah, validasi unik dalam parent yang sama.
+        let newName = existing.name;
+        if (name !== undefined && String(name).trim() !== "") {
+            newName = String(name).trim();
+            if (newName !== existing.name) {
+                try {
+                    await assertLocationNameAvailable(newName, existing.parentId, id);
+                } catch (error) {
+                    return res.status(error.statusCode || 400).json({ message: error.message });
+                }
+            }
         }
 
         const brandRuleId = await getBrandRuleId(brandRule);
@@ -202,9 +236,20 @@ export const updateLocation = async (req, res) => {
         await prisma.location.update({
             where: { id },
             data: {
-                capacity: capacity || existing.capacity
+                ...(newName !== existing.name ? { name: newName } : {}),
+                capacity: capacity || existing.capacity,
             }
         });
+
+        // Sinkronkan nama spreadsheet Drive bila lokasi punya sheet (best-effort).
+        if (existing.sheetId && newName !== existing.name) {
+            try {
+                const { updateSheetName } = await import('../services/sheet.service.js');
+                await updateSheetName(existing.sheetId, newName);
+            } catch (err) {
+                console.warn('Sheet rename skipped:', err.message);
+            }
+        }
 
         // Update brand rule if provided
         if (brandRuleId) {
@@ -218,6 +263,9 @@ export const updateLocation = async (req, res) => {
 
         res.json({ message: 'Location updated successfully' });
     } catch (error) {
+        if (error?.code === 'P2002') {
+            return res.status(400).json({ message: 'Nama lokasi sudah terdaftar' });
+        }
         console.error('Error in updateLocation:', error);
         res.status(500).json({ message: 'Internal server error' });
     }
@@ -253,6 +301,10 @@ export const deleteLocation = async (req, res) => {
             return res.status(404).json({ message: 'Location not found' });
         }
 
+        if (existing.sheetId) {
+            await deleteSheet(existing.sheetId);
+        }
+
         await prisma.location.delete({ where: { id } });
 
         res.json({ message: 'Location deleted successfully' });
@@ -262,3 +314,75 @@ export const deleteLocation = async (req, res) => {
     }
 };
 
+// POST /locations/:id/migrate-items — pindahkan seluruh item ke lokasi tujuan.
+// Satu transaksi + row lock kapasitas target: bila kurang, migrasi ditolak total.
+export const migrateLocationItems = async (req, res) => {
+    try {
+        const sourceId = parseInt(req.params.id);
+        const targetId = parseInt(req.body?.targetLocationId);
+
+        if (Number.isNaN(sourceId)) {
+            return res.status(400).json({ message: 'ID lokasi sumber tidak valid' });
+        }
+        if (!req.body?.targetLocationId || Number.isNaN(targetId)) {
+            return res.status(400).json({ message: 'targetLocationId wajib diisi' });
+        }
+        if (sourceId === targetId) {
+            return res.status(400).json({ message: 'Lokasi sumber dan tujuan tidak boleh sama' });
+        }
+
+        const [source, target] = await Promise.all([
+            prisma.location.findUnique({
+                where: { id: sourceId },
+                select: {
+                    id: true, name: true, type: true,
+                    _count: { select: { items: true, children: true } },
+                },
+            }),
+            prisma.location.findUnique({
+                where: { id: targetId },
+                select: { id: true, name: true, type: true, isActive: true },
+            }),
+        ]);
+
+        if (!source || !target) {
+            return res.status(404).json({ message: 'Lokasi tidak ditemukan' });
+        }
+        if (source.type === 'PARTNER' || target.type === 'PARTNER') {
+            return res.status(400).json({ message: 'Migrasi tidak berlaku untuk lokasi partner' });
+        }
+        if (target.name === 'Keluar' || target.name === 'Diluar') {
+            return res.status(400).json({ message: 'Tujuan tidak boleh pintu keluar logistik' });
+        }
+        if (!target.isActive) {
+            return res.status(400).json({ message: 'Lokasi tujuan sedang nonaktif' });
+        }
+        if (source._count.children > 0) {
+            return res.status(400).json({ message: 'Migrasi hanya untuk level/lokasi tanpa sub-lokasi' });
+        }
+        if (source._count.items === 0) {
+            return res.status(400).json({ message: 'Lokasi sumber kosong — tidak ada item untuk dipindahkan' });
+        }
+
+        const moved = await prisma.$transaction(async (tx) => {
+            await assertCapacityAvailable(tx, targetId, source._count.items);
+            const result = await tx.item.updateMany({
+                where: { locationId: sourceId },
+                data: { locationId: targetId },
+            });
+            return result.count;
+        });
+
+        res.json({
+            message: `${moved} item dipindahkan ke ${target.name}`,
+            moved,
+            targetName: target.name,
+        });
+    } catch (error) {
+        if (error?.statusCode === 409 || error?.code === 'CAPACITY_FULL') {
+            return res.status(409).json({ message: error.message });
+        }
+        console.error('Error in migrateLocationItems:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};

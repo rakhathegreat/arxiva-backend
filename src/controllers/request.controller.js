@@ -66,7 +66,8 @@ export const getRequests = async (req, res) => {
             })),
             deliveryDocument: r.deliveryDocument ? {
                 kpSignedById: r.deliveryDocument.kpSignedById,
-                picSignedById: r.deliveryDocument.picSignedById
+                picSignedById: r.deliveryDocument.picSignedById,
+                driveViewUrl: r.deliveryDocument.driveViewUrl || null
             } : null
         }));
 
@@ -311,6 +312,7 @@ export const updateRequestStatus = async (req, res) => {
             const draftBastData = {
                 id: reqFull.id,
                 requestNumber: reqFull.requestNumber,
+                title: reqFull.title,
                 status: 'SIAP',
                 notes: reqFull.notes,
                 requestedAt: reqFull.requestedAt,
@@ -582,6 +584,7 @@ export const downloadBastPdf = async (req, res) => {
         const bastData = {
             id: request.id,
             requestNumber: request.requestNumber,
+            title: request.title,
             status: request.status,
             notes: request.notes,
             requestedAt: request.requestedAt,

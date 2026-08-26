@@ -20,6 +20,7 @@ datasource db {
 /// Role of the user in the system.
 enum Role {
   ADMIN
+  INTERNAL
   MITRA
 }
 
@@ -299,6 +300,10 @@ model Location {
   children Location[] @relation("LocationHierarchy")
 
   isActive Boolean @default(true)
+
+  /// Link Google Spreadsheet untuk QR code lokasi (fitur Google Drive).
+  sheetId  String?
+  sheetUrl String?
 
   items         Item[]
   userLocations UserLocation[]

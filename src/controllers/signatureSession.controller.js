@@ -9,6 +9,7 @@ import {
 	completeRequest,
 } from '../modules/requestflow/requestflow.service.js';
 import { finalizeDeliveryDocument } from '../modules/bastdoc/service.js';
+import { uploadBastToDrive } from '../services/google.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -154,6 +155,7 @@ export const submitSignature = async (req, res) => {
                 const finalBastData = {
                     id: request.id,
                     requestNumber: request.requestNumber,
+                    title: request.title,
                     status: 'SELESAI',
                     notes: request.notes,
                     requestedAt: request.requestedAt,
@@ -184,6 +186,28 @@ export const submitSignature = async (req, res) => {
                     filePath: relativeFilePath,
                     itemsSnapshot: itemsAllocations,
                 });
+
+                // Upload BAST ke Google Drive — best-effort; kegagalan tidak
+                // membatalkan finalisasi (PDF lokal tetap sumber kebenaran).
+                try {
+                    const absoluteFilePath = path.resolve(
+                        __dirname,
+                        "../../public/uploads/documents",
+                        finalFilename
+                    );
+                    const { driveFileId, driveViewUrl } = await uploadBastToDrive({
+                        absoluteFilePath,
+                        fileName: `BAST ${request.requestNumber}.pdf`,
+                    });
+                    if (driveFileId) {
+                        await prisma.deliveryDocument.updateMany({
+                            where: { requestId: request.id },
+                            data: { driveFileId, driveViewUrl },
+                        });
+                    }
+                } catch (uploadErr) {
+                    console.warn('Upload BAST ke Drive dilewati:', uploadErr.message);
+                }
 
                 // 3. Penyelesaian request — SATU jalur modul requestflow (D9/D10):
                 //    kapasitas ditagih, lokasi mitra di-auto-provision bila absen.

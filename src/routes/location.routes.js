@@ -4,7 +4,8 @@ import {
     createLocation,
     updateLocation,
     toggleLocation,
-    deleteLocation
+    deleteLocation,
+    migrateLocationItems
 } from '../controllers/location.controller.js';
 import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
@@ -155,5 +156,39 @@ router.patch('/:id/toggle', authMiddleware, toggleLocation);
  *         description: Internal server error
  */
 router.delete('/:id', authMiddleware, deleteLocation);
+
+/**
+ * @swagger
+ * /locations/{id}/migrate-items:
+ *   post:
+ *     tags: [Locations]
+ *     summary: Migrate all items to another location (admin only)
+ *     description: Move every item from the source location into the target location within one transaction. Rejected entirely when target capacity is insufficient.
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: integer }
+ *         description: Source location id
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [targetLocationId]
+ *             properties:
+ *               targetLocationId:
+ *                 type: integer
+ *                 example: 12
+ *     responses:
+ *       200:
+ *         description: Items migrated successfully
+ *       400:
+ *         description: Invalid migration (same location, empty source, inactive target, etc.)
+ *       409:
+ *         description: Target capacity insufficient
+ */
+router.post('/:id/migrate-items', authMiddleware, roleMiddleware(['ADMIN']), migrateLocationItems);
 
 export default router;

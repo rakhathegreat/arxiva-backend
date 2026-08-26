@@ -1,5 +1,5 @@
 import express from 'express';
-import { login, me } from '../controllers/auth.controller.js';
+import { login, me, getGoogleAuthUrl, handleGoogleCallback, exchangeGoogleCode, getGoogleStatus, disconnectGoogle } from '../controllers/auth.controller.js';
 import { authMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -53,3 +53,64 @@ router.post('/login', login);
 router.get('/me', authMiddleware, me);
 
 export default router;
+
+// -----------------------------------------------------------------------------
+// Integrasi Google Drive (admin) — koneksi akun untuk spreadsheet/QR lokasi
+// -----------------------------------------------------------------------------
+
+/**
+ * @swagger
+ * /auth/google:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Get Google OAuth URL (admin only)
+ *     responses:
+ *       200: { description: Auth URL generated }
+ *       403: { description: Forbidden }
+ */
+router.get('/google', authMiddleware, getGoogleAuthUrl);
+
+/**
+ * @swagger
+ * /auth/google/exchange:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Exchange Google OAuth code (admin only)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [code]
+ *             properties:
+ *               code: { type: string }
+ *     responses:
+ *       200: { description: Connected }
+ */
+router.post('/google/exchange', authMiddleware, exchangeGoogleCode);
+
+/**
+ * @swagger
+ * /auth/google/status:
+ *   get:
+ *     tags: [Auth]
+ *     summary: Get system-wide Google connection status
+ *     responses:
+ *       200: { description: Status returned }
+ */
+router.get('/google/status', authMiddleware, getGoogleStatus);
+
+/**
+ * @swagger
+ * /auth/google/disconnect:
+ *   delete:
+ *     tags: [Auth]
+ *     summary: Disconnect the system Google account (admin only)
+ *     responses:
+ *       200: { description: Disconnected }
+ */
+router.delete('/google/disconnect', authMiddleware, disconnectGoogle);
+
+// Callback redirect Google — publik; kepercayaan lewat `state` sekali-pakai.
+router.get('/google/callback', handleGoogleCallback);

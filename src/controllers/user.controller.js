@@ -104,6 +104,9 @@ export const createUser = async (req, res) => {
         });
     } catch (error) {
         console.error('Error in createUser:', error);
+        if (error.code === 'P2002') {
+            return res.status(400).json({ message: 'Username already exists' });
+        }
         res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -123,12 +126,21 @@ export const updateUser = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
+        // Username adalah kredensial login — tidak boleh diubah setelah dibuat.
+        if (username && username !== user.username) {
+            return res.status(400).json({ message: 'Username cannot be changed' });
+        }
+
+        // Admin tidak boleh menonaktifkan akunnya sendiri.
+        const requestedActive = isActive !== undefined ? isActive : (isAktif !== undefined ? isAktif : undefined);
+        if (requestedActive === false && req.user.id === id) {
+            return res.status(403).json({ message: 'Cannot deactivate your own account' });
+        }
+
         const updateData = {};
-        if (username) updateData.username = username;
         if (req.user.role === 'ADMIN') {
             if (role) updateData.role = role;
-            if (isActive !== undefined) updateData.isAktif = isActive;
-            else if (isAktif !== undefined) updateData.isAktif = isAktif;
+            if (requestedActive !== undefined) updateData.isAktif = requestedActive;
         }
 
         if (password) {
@@ -168,17 +180,44 @@ export const updateUser = async (req, res) => {
             }
         }
 
-        const updatedUser = await prisma.user.update({
-            where: { id },
-            data: updateData,
-            select: {
-                id: true,
-                username: true,
-                role: true,
-                isAktif: true,
-                updatedAt: true,
-                profile: true
+        // Simetri dengan createUser: jika role diubah menjadi MITRA dan user
+        // belum punya lokasi PARTNER, buatkan agar ia bisa menerima material.
+        const newRole = updateData.role;
+        const becomesMitra = newRole === 'MITRA' && user.role !== 'MITRA';
+        const updatedUser = await prisma.$transaction(async (tx) => {
+            const result = await tx.user.update({
+                where: { id },
+                data: updateData,
+                select: {
+                    id: true,
+                    username: true,
+                    role: true,
+                    isAktif: true,
+                    updatedAt: true,
+                    profile: true
+                }
+            });
+
+            if (becomesMitra) {
+                const existingPartnerLocation = await tx.userLocation.findFirst({
+                    where: { userId: id, location: { type: 'PARTNER' } }
+                });
+
+                if (!existingPartnerLocation) {
+                    const partnerLocation = await tx.location.create({
+                        data: {
+                            name: user.profile?.nama || result.username,
+                            type: 'PARTNER',
+                            capacity: 999999, // Kapasitas besar untuk lokasi logis partner
+                        }
+                    });
+                    await tx.userLocation.create({
+                        data: { userId: id, locationId: partnerLocation.id }
+                    });
+                }
             }
+
+            return result;
         });
 
         res.json({
