@@ -17,6 +17,8 @@ import intakeRoutes from './src/modules/intake/intake.routes.js';
 import signatureSessionRoutes from './src/routes/signatureSession.routes.js';
 import dashboardRoutes from './src/routes/dashboard.routes.js';
 import notificationRoutes from './src/routes/notification.routes.js';
+import uploadRoutes from './src/routes/upload.routes.js';
+import reconRoutes from './src/routes/recon.routes.js';
 
 
 const app = express();
@@ -52,6 +54,9 @@ app.use("/intake", intakeRoutes);
 app.use("/signature-session", signatureSessionRoutes);
 app.use("/dashboard", dashboardRoutes);
 app.use("/notifications", notificationRoutes);
+app.use("/upload", uploadRoutes);
+app.use("/recon-progress", reconRoutes);
+app.use("/recon-reports", reconRoutes);
 
 // Central error handler — jaring pengaman untuk error yang lolos dari controller
 app.use((err, req, res, next) => {

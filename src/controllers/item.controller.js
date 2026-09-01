@@ -113,6 +113,20 @@ export const getItems = async (req, res) => {
 
         const items = await prisma.item.findMany(queryOptions);
 
+        // Agregasi rekon per item (1 record per item per hari).
+        // Ambil record dengan `date` terbesar per item yang ada di halaman ini.
+        const pageIds = items.map(i => i.id);
+        const reconRows = pageIds.length
+            ? await prisma.reconRecord.findMany({
+                where: { itemId: { in: pageIds } },
+                orderBy: { date: 'desc' },
+            })
+            : [];
+        const reconByItem = new Map();
+        for (const r of reconRows) {
+            if (!reconByItem.has(r.itemId)) reconByItem.set(r.itemId, r);
+        }
+
         const formattedItems = items.map(item => {
             const statusUnit = enumToDisplay(item.status, item.paNumber);
 
@@ -126,6 +140,9 @@ export const getItems = async (req, res) => {
                     lokasiPenyimpanan = item.location.name;
                 }
             }
+
+            const isDistributed = item.status === "digunakan";
+            const recon = reconByItem.get(item.id);
 
             return {
                 id: item.id,
@@ -141,7 +158,9 @@ export const getItems = async (req, res) => {
                 lokasiPenyimpanan,
                 tanggalMasuk: item.entryDate ? item.entryDate.toISOString().slice(0, 10) : item.createdAt.toISOString().slice(0, 10),
                 tanggalKeluar: item.exitDate ? item.exitDate.toISOString().slice(0, 10) : "",
-                mitra: item.createdBy?.role === 'ADMIN' ? "KP Tasikmalaya" : (item.createdBy?.profile?.nama || item.createdBy?.username || "KP Tasikmalaya")
+                mitra: item.createdBy?.role === 'ADMIN' ? "KP Tasikmalaya" : (item.createdBy?.profile?.nama || item.createdBy?.username || "KP Tasikmalaya"),
+                lastReconDate: isDistributed ? (recon?.date || "") : "",
+                lastPhotoUrl: isDistributed ? (recon?.imageUrl || null) : null
             };
         });
 

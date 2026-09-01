@@ -488,3 +488,19 @@ model SignatureSession {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 }
+
+/// Daily reconciliation record for a distributed item (1 record per item per day).
+model ReconRecord {
+  id        String   @id @default(uuid())
+  itemId    String
+  userId    String
+  /// Working day of the mitra (YYYY-MM-DD); source of truth for "last recon date".
+  date      String
+  /// Public MinIO URL of the recon photo.
+  imageUrl  String
+  createdAt DateTime @default(now())
+
+  @@unique([itemId, date])
+  @@index([userId])
+  @@index([date])
+}

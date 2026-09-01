@@ -25,6 +25,8 @@
 		"express": "^5.2.1",
 		"googleapis": "^144.0.0",
 		"jsonwebtoken": "^9.0.3",
+		"minio": "^8.0.7",
+		"multer": "^2.2.0",
 		"pdfmake": "^0.3.11",
 		"prisma": "^6.19.3",
 		"swagger-jsdoc": "^6.3.0",
