@@ -1,6 +1,7 @@
 import prisma from '../shared/prisma.js';
 import {
 	submitReconProgress,
+	validateReconSubmission,
 	upsertReconRecord,
 	resolveImageUrlForStorage,
 } from '../modules/recon/recon.service.js';
@@ -118,6 +119,15 @@ export const postReconReports = async (req, res) => {
 		let saved = 0;
 		for (const it of items) {
 			if (!it?.itemId || !it?.imageUrl) continue;
+
+			// Validasi kepemilikan sama seperti POST /recon-progress: setiap item
+			// harus milik mitra ini sebelum direkam ke database.
+			const validation = await validateReconSubmission({
+				userId,
+				itemId: it.itemId,
+				image: it.imageUrl,
+			});
+			if (!validation.ok) continue;
 
 			const resolved = await resolveImageUrlForStorage({
 				userId,
