@@ -4,7 +4,13 @@ import prisma from '../shared/prisma.js';
 // GET /users
 export const getUsers = async (req, res) => {
     try {
+        // Mitra hanya boleh melihat sesama mitra yang aktif (daftar tujuan peminjaman).
+        // Admin melihat semua user.
+        const isAdmin = req.user?.role === 'ADMIN';
+        const where = isAdmin ? {} : { role: 'MITRA', isAktif: true };
+
         const users = await prisma.user.findMany({
+            where,
             select: {
                 id: true,
                 username: true,
@@ -13,7 +19,8 @@ export const getUsers = async (req, res) => {
                 createdAt: true,
                 updatedAt: true,
                 profile: true
-            }
+            },
+            orderBy: { createdAt: 'desc' }
         });
         res.json(users);
     } catch (error) {

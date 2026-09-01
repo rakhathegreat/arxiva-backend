@@ -107,6 +107,7 @@ model User {
   locations     UserLocation[]
 
   requests           Request[]           @relation("Requester")
+  destinedRequests   Request[]           @relation("Destination")
   allocatedRequests  RequestAllocation[] @relation("Allocator")
   generatedDocuments DeliveryDocument[]  @relation("GeneratedDocument")
 
@@ -365,6 +366,9 @@ model Request {
   requesterId String
   requester   User   @relation("Requester", fields: [requesterId], references: [id])
 
+  destinationUserId String?
+  destinationUser   User?  @relation("Destination", fields: [destinationUserId], references: [id])
+
   status RequestStatus @default(MENUNGGU)
 
   notes String?
@@ -392,6 +396,7 @@ model Request {
 
   @@index([requesterId])
   @@index([status])
+  @@index([destinationUserId])
 }
 
 /// Specific requested quantity of a category/brand within a Request.

@@ -12,15 +12,17 @@ router.use(authMiddleware);
  * /users:
  *   get:
  *     tags: [Users]
- *     summary: Get all users
- *     description: Retrieve a list of all users.
+ *     summary: Get users
+ *     description: |
+ *       List user accounts. Admin sees all users; mitra sees only active fellow
+ *       mitras (digunakan sebagai daftar tujuan request / peminjaman).
  *     responses:
  *       200:
  *         description: Users retrieved successfully
  *       500:
  *         description: Internal server error
  */
-router.get('/', roleMiddleware(['ADMIN']), getUsers);
+router.get('/', roleMiddleware(['ADMIN', 'MITRA']), getUsers);
 
 /**
  * @swagger

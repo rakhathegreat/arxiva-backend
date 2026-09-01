@@ -22,6 +22,7 @@ export const getRequests = async (req, res) => {
         const requests = await prisma.request.findMany({
             include: {
                 requester: { include: { profile: true } },
+                destinationUser: { include: { profile: true } },
                 requestItems: {
                     include: {
                         materialCategory: true,
@@ -46,6 +47,11 @@ export const getRequests = async (req, res) => {
             requestNumber: r.requestNumber,
             requesterName: r.requester?.profile?.nama || r.requester?.username || "Unknown",
             partnerCategory: r.requester?.profile?.partnerType || "Mitra",
+            destinationUserId: r.destinationUserId || null,
+            destinationName: r.destinationUser
+                ? (r.destinationUser.profile?.nama || r.destinationUser.username)
+                : null,
+            destination: r.destinationUser || null,
             status: r.status,
             notes: r.notes || "-",
             rejectionNotes: r.rejectionNotes || null,
@@ -86,6 +92,7 @@ export const getRequestById = async (req, res) => {
             where: { id },
             include: {
                 requester: { include: { profile: true } },
+                destinationUser: { include: { profile: true } },
                 requestItems: {
                     include: {
                         materialCategory: true,
@@ -121,7 +128,22 @@ export const getRequestById = async (req, res) => {
 // POST /requests
 export const createRequest = async (req, res) => {
     try {
-        const { requesterId, notes, items } = req.body;
+        const { requesterId, notes, items, destinationUserId } = req.body;
+
+        // Tujuan request (opsional) = mitra lain yang akan menerima barang pinjaman.
+        // Hanya boleh menunjuk mitra aktif yang ada, dan bukan dirinya sendiri.
+        if (destinationUserId) {
+            if (destinationUserId === requesterId) {
+                return res.status(400).json({ message: 'Tujuan tidak boleh sama dengan pemohon' });
+            }
+            const destination = await prisma.user.findUnique({
+                where: { id: destinationUserId },
+                select: { id: true, role: true, isAktif: true }
+            });
+            if (!destination || destination.role !== 'MITRA' || !destination.isAktif) {
+                return res.status(400).json({ message: 'Tujuan request harus merupakan mitra yang aktif' });
+            }
+        }
 
         const requestCount = await prisma.request.count();
         const requestNumber = `REQ-${new Date().getFullYear()}-${String(requestCount + 1).padStart(4, '0')}`;
@@ -130,6 +152,7 @@ export const createRequest = async (req, res) => {
             data: {
                 requestNumber,
                 requesterId,
+                destinationUserId: destinationUserId || null,
                 notes,
                 requestItems: {
                     create: items.map(item => ({
@@ -142,6 +165,7 @@ export const createRequest = async (req, res) => {
             },
             include: {
                 requester: { include: { profile: true } },
+                destinationUser: { include: { profile: true } },
                 requestItems: { include: { materialCategory: true, brand: true, model: true } }
             }
         });
