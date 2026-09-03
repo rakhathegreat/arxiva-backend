@@ -155,6 +155,7 @@ export const getItems = async (req, res) => {
                 kondisi: item.kondisi || "Baru",
                 paNumber: item.paNumber || null,
                 ticket: item.ticket || null,
+                catatan: item.catatan || null,
                 lokasiPenyimpanan,
                 tanggalMasuk: item.entryDate ? item.entryDate.toISOString().slice(0, 10) : item.createdAt.toISOString().slice(0, 10),
                 tanggalKeluar: item.exitDate ? item.exitDate.toISOString().slice(0, 10) : "",
@@ -244,9 +245,14 @@ export const getItemHistory = async (req, res) => {
             if (t.type === "HILANG") kategori = "Hilang";
 
             const mutationNo = t.mutationNumber || t.paNumber || "-";
-            const asalLoc = formatLocationDisplay(t.originLocation, t.originLocationName) || "Inbound";
+            let asalLoc = formatLocationDisplay(t.originLocation, t.originLocationName) || "Inbound";
+            if (kategori === "Digunakan") asalLoc = t.paNumber || asalLoc;
+            if (kategori === "Rusak") asalLoc = t.ticket || asalLoc;
             const tujuanLoc = formatLocationDisplay(t.destinationLocation, t.destinationLocationName) || "Gudang Utama";
             const noteStr = `Status barang diubah menjadi ${kategori}`;
+
+            let mitraDisplay = t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya");
+            if (kategori === "Rusak") mitraDisplay = "KP Tasikmalaya";
 
             return {
                 id: t.id,
@@ -263,7 +269,7 @@ export const getItemHistory = async (req, res) => {
                 lokasi: tujuanLoc,
                 dariStatus: asalLoc,
                 keStatus: kategori,
-                mitra: t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya"),
+                mitra: mitraDisplay,
                 keterangan: noteStr,
                 catatan: noteStr,
                 createdAt: actualDate.toISOString()
@@ -279,7 +285,7 @@ export const getItemHistory = async (req, res) => {
 
 export const createItem = async (req, res) => {
     try {
-        const { id, serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket } = req.body;
+        const { id, serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket, catatan } = req.body;
 
         if (!serialNumber || !kategori || !merek) {
             return res.status(400).json({ message: 'Serial number, kategori, dan merek wajib diisi' });
@@ -320,6 +326,7 @@ export const createItem = async (req, res) => {
                         kondisi: kondisi || "Baru",
                         paNumber: paNumber || null,
                         ticket: ticket || null,
+                        catatan: catatan || null,
                         locationId,
                         entryDate,
                         exitDate,
@@ -358,7 +365,7 @@ export const createItem = async (req, res) => {
 export const updateItem = async (req, res) => {
     try {
         const { id } = req.params;
-        const { serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket } = req.body;
+        const { serialNumber, kategori, merek, tipe, status, kondisi, lokasiPenyimpanan, tanggalMasuk, tanggalKeluar, mitra, paNumber, ticket, catatan } = req.body;
 
         const item = await prisma.item.findUnique({ where: { id } });
         if (!item) {
@@ -385,7 +392,7 @@ export const updateItem = async (req, res) => {
         }
 
         const locationId = lokasiPenyimpanan ? await resolveLocationId(lokasiPenyimpanan) : item.locationId;
-        const createdById = mitra ? await resolveActorId(mitra, req.user) : item.createdById;
+        let createdById = mitra ? await resolveActorId(mitra, req.user) : item.createdById;
 
         let prismaStatus = item.status;
         if (status) {
@@ -397,6 +404,9 @@ export const updateItem = async (req, res) => {
 
         const isChangingToRusak = item.status !== 'rusak' && prismaStatus === 'rusak';
         const isMovingLocation = locationId !== item.locationId;
+        if (isChangingToRusak) {
+            createdById = await resolveActorId(mitra || req.user, req.user);
+        }
 
         let updatedItem;
         try {
@@ -419,7 +429,8 @@ export const updateItem = async (req, res) => {
                         exitDate,
                         createdById,
                         paNumber: paNumber !== undefined ? paNumber : item.paNumber,
-                        ticket: ticket !== undefined ? ticket : item.ticket
+                        ticket: ticket !== undefined ? ticket : item.ticket,
+                        catatan: catatan !== undefined ? catatan : item.catatan
                     },
                     include: {
                         model: { include: { materialCategory: true, brand: true } },

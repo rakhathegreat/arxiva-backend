@@ -121,6 +121,7 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 						entryDate,
 						paNumber: rawItem.paNumber ?? existing.paNumber,
 						ticket: rawItem.ticket ?? existing.ticket,
+						catatan: rawItem.catatan ?? existing.catatan,
 					},
 				});
 				itemId = existing.id;
@@ -133,6 +134,7 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 						kondisi,
 						paNumber: rawItem.paNumber || null,
 						ticket: rawItem.ticket || null,
+						catatan: rawItem.catatan || null,
 						locationId,
 						entryDate,
 						createdById: actorUser.id,

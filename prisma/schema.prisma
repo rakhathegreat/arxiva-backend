@@ -231,6 +231,7 @@ model Item {
 
   paNumber String? /// Property/Asset number assigned by organization
   ticket   String? /// Trouble ticket reference for damaged items
+  catatan  String? /// Damage/condition notes for damaged items
 
   locationId Int?
   location   Location? @relation(fields: [locationId], references: [id])
@@ -503,9 +504,18 @@ model ReconRecord {
   date      String
   /// Public MinIO URL of the recon photo.
   imageUrl  String
+  /// Actual timestamp when the mitra took the photo (device time, nullable for legacy records).
+  capturedAt DateTime?
   createdAt DateTime @default(now())
 
   @@unique([itemId, date])
   @@index([userId])
   @@index([date])
+}
+
+/// Key-value store for system-wide configuration (e.g., Google Drive Folder ID).
+model SystemConfig {
+  key       String   @id
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt
 }

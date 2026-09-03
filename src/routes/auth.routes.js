@@ -1,6 +1,15 @@
-import express from 'express';
-import { login, me, getGoogleAuthUrl, handleGoogleCallback, exchangeGoogleCode, getGoogleStatus, disconnectGoogle } from '../controllers/auth.controller.js';
-import { authMiddleware } from '../shared/middlewares/auth.middleware.js';
+import express from "express";
+import {
+	login,
+	me,
+	getGoogleAuthUrl,
+	handleGoogleCallback,
+	exchangeGoogleCode,
+	getGoogleStatus,
+	disconnectGoogle,
+	updateFolderId,
+} from "../controllers/auth.controller.js";
+import { authMiddleware } from "../shared/middlewares/auth.middleware.js";
 
 const router = express.Router();
 
@@ -33,7 +42,7 @@ const router = express.Router();
  *       500:
  *         description: Internal server error
  */
-router.post('/login', login);
+router.post("/login", login);
 
 /**
  * @swagger
@@ -50,7 +59,7 @@ router.post('/login', login);
  *       500:
  *         description: Internal server error
  */
-router.get('/me', authMiddleware, me);
+router.get("/me", authMiddleware, me);
 
 export default router;
 
@@ -68,7 +77,7 @@ export default router;
  *       200: { description: Auth URL generated }
  *       403: { description: Forbidden }
  */
-router.get('/google', authMiddleware, getGoogleAuthUrl);
+router.get("/google", authMiddleware, getGoogleAuthUrl);
 
 /**
  * @swagger
@@ -88,7 +97,7 @@ router.get('/google', authMiddleware, getGoogleAuthUrl);
  *     responses:
  *       200: { description: Connected }
  */
-router.post('/google/exchange', authMiddleware, exchangeGoogleCode);
+router.post("/google/exchange", authMiddleware, exchangeGoogleCode);
 
 /**
  * @swagger
@@ -99,7 +108,7 @@ router.post('/google/exchange', authMiddleware, exchangeGoogleCode);
  *     responses:
  *       200: { description: Status returned }
  */
-router.get('/google/status', authMiddleware, getGoogleStatus);
+router.get("/google/status", authMiddleware, getGoogleStatus);
 
 /**
  * @swagger
@@ -110,7 +119,29 @@ router.get('/google/status', authMiddleware, getGoogleStatus);
  *     responses:
  *       200: { description: Disconnected }
  */
-router.delete('/google/disconnect', authMiddleware, disconnectGoogle);
+router.delete("/google/disconnect", authMiddleware, disconnectGoogle);
+
+/**
+ * @swagger
+ * /auth/google/folder-id:
+ *   put:
+ *     tags: [Auth]
+ *     summary: Update Google Drive Root Folder ID (admin only)
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [folderId]
+ *             properties:
+ *               folderId: { type: string, example: "1JVje8BVIRAhQZVTjmbBAo5dMg1gVh6Xs" }
+ *     responses:
+ *       200: { description: Folder ID saved }
+ *       400: { description: folderId required }
+ *       403: { description: Forbidden }
+ */
+router.put("/google/folder-id", authMiddleware, updateFolderId);
 
 // Callback redirect Google — publik; kepercayaan lewat `state` sekali-pakai.
-router.get('/google/callback', handleGoogleCallback);
+router.get("/google/callback", handleGoogleCallback);

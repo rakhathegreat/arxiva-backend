@@ -8,10 +8,10 @@ import {
 } from '../controllers/recon.controller.js';
 import { authMiddleware } from '../shared/middlewares/auth.middleware.js';
 
-const router = express.Router();
+// ─── Router: /recon-progress ──────────────────────────────────────────────────
 
-// Semua endpoint recon butuh autentikasi.
-router.use(authMiddleware);
+const progressRouter = express.Router();
+progressRouter.use(authMiddleware);
 
 /**
  * @swagger
@@ -31,7 +31,7 @@ router.use(authMiddleware);
  *     responses:
  *       200: { description: List of recon records }
  */
-router.get('/', getReconProgress);
+progressRouter.get('/', getReconProgress);
 
 /**
  * @swagger
@@ -52,13 +52,14 @@ router.get('/', getReconProgress);
  *               date: { type: string, example: YYYY-MM-DD }
  *               image: { type: string, description: base64 data URL of the photo }
  *               imageUrl: { type: string, description: legacy alias for image }
- *               timestamp: { type: string }
+ *               capturedAt: { type: string, description: ISO timestamp when photo was taken }
+ *               timestamp: { type: string, description: legacy alias for capturedAt }
  *     responses:
  *       200: { description: Recon record saved }
  *       403: { description: Item not owned by user }
  *       413: { description: Photo exceeds 1MB }
  */
-router.post('/', postReconProgress);
+progressRouter.post('/', postReconProgress);
 
 /**
  * @swagger
@@ -78,7 +79,12 @@ router.post('/', postReconProgress);
  *     responses:
  *       200: { description: Progress reset }
  */
-router.delete('/', deleteReconProgress);
+progressRouter.delete('/', deleteReconProgress);
+
+// ─── Router: /recon-reports ───────────────────────────────────────────────────
+
+const reportsRouter = express.Router();
+reportsRouter.use(authMiddleware);
 
 /**
  * @swagger
@@ -98,7 +104,7 @@ router.delete('/', deleteReconProgress);
  *     responses:
  *       200: { description: List of recon records }
  */
-router.get('/reports', getReconReports);
+reportsRouter.get('/', getReconReports);
 
 /**
  * @swagger
@@ -126,10 +132,12 @@ router.get('/reports', getReconReports);
  *                   properties:
  *                     itemId: { type: string }
  *                     imageUrl: { type: string }
- *                     timestamp: { type: string }
+ *                     capturedAt: { type: string }
+ *                     timestamp: { type: string, description: legacy alias for capturedAt }
  *     responses:
  *       201: { description: Report saved }
  */
-router.post('/reports', postReconReports);
+reportsRouter.post('/', postReconReports);
 
-export default router;
+export { progressRouter, reportsRouter };
+
