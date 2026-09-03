@@ -55,10 +55,11 @@ services:
     environment:
       MINIO_ROOT_USER: "admin"
       MINIO_ROOT_PASSWORD: "minioadminpassword"
+      MINIO_BROWSER_REDIRECT_URL: "https://api-taslim.duckdns.org/minio-console"
+      MINIO_SERVER_URL: "https://api-taslim.duckdns.org/minio"
     expose:
       - "9000"
-    ports:
-      - "9001:9001"
+      - "9001"
     volumes:
       - minio_data:/data
     healthcheck:

@@ -2,5 +2,9 @@ api-taslim.duckdns.org {
     handle_path /minio/* {
         reverse_proxy minio:9000
     }
+    handle /minio-console/* {
+        uri strip_prefix /minio-console
+        reverse_proxy minio:9001
+    }
     reverse_proxy backend:3000
 }
