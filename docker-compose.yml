@@ -42,6 +42,10 @@ services:
       NODE_ENV: "production"
       PORT: "3000"
       ENABLE_SWAGGER: "true"
+      MINIO_ENDPOINT: "minio"
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_PUBLIC_URL: "https://api-taslim.duckdns.org/minio"
     expose:
       - "3000"
     networks:
