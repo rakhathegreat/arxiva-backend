@@ -22,7 +22,7 @@ const formatDate = (date) => {
 	}
 };
 
-/** Buat Google Spreadsheet untuk sebuah lokasi; gagal → { null, null } tanpa crash. */
+/** Buat Google Spreadsheet untuk sebuah lokasi; gagal → { sheetId:null, sheetUrl:null, error? } tanpa crash. */
 export const createSheetForLevel = async (name) => {
 	try {
 		const { sheets, drive } = await getGoogleServices();
@@ -59,8 +59,11 @@ export const createSheetForLevel = async (name) => {
 
 		return { sheetId, sheetUrl };
 	} catch (error) {
-		console.error(`Error creating Google Sheet for ${name}:`, error.message);
-		return { sheetId: null, sheetUrl: null };
+		console.error(
+			`Error creating Google Sheet for ${name}:`,
+			error?.message || error,
+		);
+		return { sheetId: null, sheetUrl: null, error: error?.message || String(error) };
 	}
 };
 
@@ -168,7 +171,9 @@ export const syncAllLocationSheets = async () => {
 				if (!sheetId) {
 					const created = await createSheetForLevel(name);
 					if (!created.sheetId) {
-						result.failed.push(name);
+						result.failed.push(
+							created.error ? `${name} (${created.error})` : name,
+						);
 						continue;
 					}
 					sheetId = created.sheetId;
