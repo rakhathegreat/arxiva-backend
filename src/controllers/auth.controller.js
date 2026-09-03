@@ -347,9 +347,23 @@ export const updateFolderId = async (req, res) => {
 		}
 
 		await setRootFolderId(folderId.trim());
+
+		// Saat input drive (folder ID) baru, sinkronkan seluruh lokasi:
+		// buat spreadsheet untuk yang belum punya & isi data item dari DB (best-effort).
+		let sync = null;
+		try {
+			const { syncAllLocationSheets } = await import(
+				"../services/sheet.service.js"
+			);
+			sync = await syncAllLocationSheets();
+		} catch (syncErr) {
+			console.error("[auth] Gagal sinkron lokasi setelah set folder:", syncErr.message);
+		}
+
 		res.json({
 			message: "Root Folder ID berhasil disimpan",
 			rootFolderId: folderId.trim(),
+			sync: sync || { created: 0, updated: 0, failed: [] },
 		});
 	} catch (error) {
 		console.error("Error updating folder ID:", error);

@@ -1,6 +1,6 @@
 import prisma from '../shared/prisma.js';
 import { assertCapacityAvailable } from '../modules/storage/service.js';
-import { createSheetForLevel, updateSheetName, deleteSheet } from '../services/sheet.service.js';
+import { createSheetForLevel, updateSheetName, deleteSheet, writeItemsToSheet } from '../services/sheet.service.js';
 
 const getBrandRuleId = async (brandName) => {
     if (!brandName || brandName === "Campuran") return null;
@@ -26,7 +26,7 @@ const assertLocationNameAvailable = async (name, parentId = null, excludeId = nu
 };
 
 
-/** Buatkan spreadsheet lokasi & simpan link-nya (best-effort; gagal → tetap tanpa QR). */
+/** Buatkan spreadsheet lokasi, simpan link-nya, lalu isi item lokasi (best-effort; gagal → tetap tanpa QR). */
 const attachSheetToLocation = async (locationId, displayName) => {
     const { sheetId, sheetUrl } = await createSheetForLevel(displayName);
     if (!sheetUrl) return;
@@ -34,6 +34,16 @@ const attachSheetToLocation = async (locationId, displayName) => {
         await prisma.location.update({ where: { id: locationId }, data: { sheetId, sheetUrl } });
     } catch (error) {
         console.error('Error attaching sheet to location:', error.message);
+    }
+    // Isi item yang sudah ada di lokasi ke dalam spreadsheet-nya (best-effort).
+    try {
+        const items = await prisma.item.findMany({
+            where: { locationId },
+            include: { model: { include: { materialCategory: true, brand: true } } },
+        });
+        await writeItemsToSheet(sheetId, items);
+    } catch (error) {
+        console.error('Error writing initial items to sheet:', error.message);
     }
 };
 // GET /locations
