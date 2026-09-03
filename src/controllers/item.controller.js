@@ -34,9 +34,20 @@ export const getItems = async (req, res) => {
             ];
         }
 
-        // Status Filter
+        // Status Filter.
+        // Enum DB tidak membedakan "Terdistribusi" vs "Digunakan" — keduanya
+        // disimpan sebagai enum `digunakan`. Pembeda sebenarnya adalah nomor PA:
+        //   - Terdistribusi → material di mitra, belum digunakan (paNumber kosong)
+        //   - Digunakan     → sudah dipakai, ditandai dengan nomor PA
         if (statusFilter && statusFilter !== 'all') {
             where.status = statusToEnum(statusFilter);
+            if (where.status === 'digunakan') {
+                if (statusFilter.toLowerCase() === 'terdistribusi') {
+                    where.paNumber = null;
+                } else if (statusFilter.toLowerCase() === 'digunakan') {
+                    where.paNumber = { not: null };
+                }
+            }
         }
 
         // Category Filter

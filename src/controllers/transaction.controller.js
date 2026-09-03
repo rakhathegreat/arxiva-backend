@@ -128,6 +128,8 @@ export const createTransaction = async (req, res) => {
             if (loc) destinationLocationId = loc.id;
         }
 
+        const paNumberValue = nomor || "";
+
         const newTransaction = await createItemMutationWithRetry(
             prisma,
             {
@@ -138,7 +140,7 @@ export const createTransaction = async (req, res) => {
                 serialNumber: sn,
                 brand: merek || item.model?.brand?.nama || "Unknown",
                 category: item.model?.materialCategory?.nama || "Unknown",
-                paNumber: nomor || "",
+                paNumber: paNumberValue,
                 ticket: ticket || null,
                 originLocationId,
                 destinationLocationId,
@@ -149,6 +151,18 @@ export const createTransaction = async (req, res) => {
             'MUT',
             { include: { user: { include: { profile: true } }, item: true } }
         );
+
+        // Sinkronkan nomor PA ke Item: kehadiran nomor PA pada transaksi pemakaian
+        // mitra ("Digunakan") menandakan material sudah dipakai. Tanpa sinkron ini,
+        // `GET /items` menampilkan status "Terdistribusi" walau item sudah dipakai
+        // ber-PA. Transaksi "Keluar" (distribusi KP → mitra) sengaja TIDAK ikut
+        // karena nomornya adalah nomor mutasi, bukan nomor PA.
+        if (kategori === "Digunakan" && paNumberValue) {
+            await prisma.item.update({
+                where: { id: item.id },
+                data: { paNumber: paNumberValue },
+            });
+        }
 
         // Event: pengajuan barang keluar oleh MITRA → notify semua admin
         // (menggantikan POST client-side yang salah target penerima)
