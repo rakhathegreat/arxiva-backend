@@ -128,7 +128,9 @@ export const createTransaction = async (req, res) => {
             if (loc) destinationLocationId = loc.id;
         }
 
-        const paNumberValue = nomor || "";
+        // Nomor PA material sesungguhnya diutamakan; `nomor` transaksi menjadi
+        // fallback agar Riwayat Mutasi tetap menampilkan nomor yang terkait.
+        const paNumberValue = paNumber || nomor || "";
 
         const newTransaction = await createItemMutationWithRetry(
             prisma,

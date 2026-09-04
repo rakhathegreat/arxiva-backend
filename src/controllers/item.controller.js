@@ -257,13 +257,17 @@ export const getItemHistory = async (req, res) => {
 
             const mutationNo = t.mutationNumber || t.paNumber || "-";
             let asalLoc = formatLocationDisplay(t.originLocation, t.originLocationName) || "Inbound";
-            if (kategori === "Digunakan") asalLoc = t.paNumber || asalLoc;
             if (kategori === "Rusak") asalLoc = t.ticket || asalLoc;
             const tujuanLoc = formatLocationDisplay(t.destinationLocation, t.destinationLocationName) || "Gudang Utama";
             const noteStr = `Status barang diubah menjadi ${kategori}`;
 
             let mitraDisplay = t.user?.role === 'ADMIN' ? "KP Tasikmalaya" : (t.user?.profile?.nama || t.user?.username || "KP Tasikmalaya");
             if (kategori === "Rusak") mitraDisplay = "KP Tasikmalaya";
+
+            // Mutasi pemakaian material oleh mitra: tampilkan "dari nama mitra → ke nomor PA".
+            // PA menjadi lokasi/tujuan karena material dipakai atas dasar nomor PA tersebut.
+            const dariStatus = kategori === "Digunakan" ? mitraDisplay : asalLoc;
+            const tujuanPemakaian = kategori === "Digunakan" ? (t.paNumber || tujuanLoc || mitraDisplay) : tujuanLoc;
 
             return {
                 id: t.id,
@@ -275,11 +279,11 @@ export const getItemHistory = async (req, res) => {
                 status: "Selesai",
                 sn: t.serialNumber,
                 merek: t.brand,
-                asal: asalLoc,
-                tujuan: tujuanLoc,
-                lokasi: tujuanLoc,
-                dariStatus: asalLoc,
-                keStatus: kategori,
+                asal: dariStatus,
+                tujuan: tujuanPemakaian,
+                lokasi: tujuanPemakaian,
+                dariStatus,
+                keStatus: tujuanPemakaian,
                 mitra: mitraDisplay,
                 keterangan: noteStr,
                 catatan: noteStr,
