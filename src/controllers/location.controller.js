@@ -66,8 +66,8 @@ export const getLocations = async (req, res) => {
                 ...baseWhere,
                 AND: [{
                     OR: [
-                        { name: { contains: search, mode: 'insensitive' } },
-                        { children: { some: { name: { contains: search, mode: 'insensitive' } } } }
+                        { name: { contains: search } },
+                        { children: { some: { name: { contains: search } } } }
                     ]
                 }]
             }

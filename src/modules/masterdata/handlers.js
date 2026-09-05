@@ -9,7 +9,7 @@ export const categoryHandlers = makeMasterDataCrud({
 	model: 'materialCategory',
 	label: 'Category',
 	responseKey: 'category',
-	searchWhere: (q) => ({ nama: { contains: q, mode: 'insensitive' } }),
+	searchWhere: (q) => ({ nama: { contains: q } }),
 	totalItemsWhere: (row) => ({ model: { materialCategoryId: row.id } }),
 	create: {
 		buildData(body) {
@@ -47,8 +47,8 @@ export const brandHandlers = makeMasterDataCrud({
 	responseKey: 'brand',
 	searchWhere: (q) => ({
 		OR: [
-			{ nama: { contains: q, mode: 'insensitive' } },
-			{ identifier: { contains: q, mode: 'insensitive' } },
+			{ nama: { contains: q } },
+			{ identifier: { contains: q } },
 		],
 	}),
 	listInclude: { models: { include: { materialCategory: true } } },
