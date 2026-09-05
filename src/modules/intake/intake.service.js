@@ -75,8 +75,29 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 				return reject(REJECT.INVALID_SN_FOR_DISMANTLE);
 			}
 
-			// Gating sumber mitra — hanya untuk actor MITRA (port validators.ts)
-			if (actorUser.role === "MITRA") {
+			// Pengikatan opsional ke pengajuan material rusak (RETURN_RUSAK).
+			// Jalur formal mewajibkan referensi sah yg sudah disetujui; jalur
+			// informal (tanpa referensi) tetap bebas. Resolusi diletakkan awal
+			// agar pengajuan yg sah bisa melewati gating mitra.
+			let boundRequestId = null;
+			if (rawItem.requestId || rawItem.requestNumber) {
+				const refRequest = rawItem.requestId
+					? await tx.request.findUnique({ where: { id: rawItem.requestId } })
+					: await tx.request.findFirst({ where: { requestNumber: rawItem.requestNumber } });
+				if (!refRequest) return reject(REJECT.REQUEST_NOT_FOUND);
+				if (refRequest.type !== "RETURN_RUSAK" || rawItem.kondisi !== "Rusak")
+					return reject(REJECT.REQUEST_INVALID_TYPE);
+				if (!["DISETUJUI", "SERAH"].includes(refRequest.status))
+					return reject(REJECT.REQUEST_NOT_APPROVED);
+				if (actorUser.role !== "ADMIN" && refRequest.requesterId !== actorUser.id)
+					return reject(REJECT.REQUEST_NOT_OWNED);
+				boundRequestId = refRequest.id;
+			}
+
+			// Gating sumber mitra — hanya untuk actor MITRA (port validators.ts).
+			// Dikecualikan saat intake terikat pengajuan rusak miliknya (sudah
+			// disetujui → hak mitra utk mengembalikan sudah terverifikasi).
+			if (actorUser.role === "MITRA" && !boundRequestId) {
 				const mitraDisplayName = actorUser.profile?.nama || actorUser.username;
 				const allowed = isMitraInboundAllowed(
 					existing && {
@@ -122,6 +143,12 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 				? new Date(rawItem.tanggalMasuk)
 				: new Date();
 			const kondisi = rawItem.kondisi;
+
+			// Material Rusak menjadi milik KP (admin) — ownership kembali ke KP apa pun aktornya.
+			const kpAdmin = rawItem.kondisi === "Rusak"
+				? await tx.user.findFirst({ where: { role: "ADMIN" } })
+				: null;
+
 			let itemId;
 
 			if (existing) {
@@ -138,6 +165,7 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 						paNumber: rawItem.paNumber ?? existing.paNumber,
 						ticket: rawItem.ticket ?? existing.ticket,
 						catatan: rawItem.catatan ?? existing.catatan,
+						createdById: kpAdmin?.id ?? undefined,
 					},
 				});
 				itemId = existing.id;
@@ -153,7 +181,7 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 						catatan: rawItem.catatan || null,
 						locationId,
 						entryDate,
-						createdById: actorUser.id,
+						createdById: kpAdmin?.id || actorUser.id,
 					},
 				});
 				itemId = created.id;
@@ -167,6 +195,7 @@ async function receiveOne(actorUser, rawItem, seenSerials, attempt = 0) {
 					type: kondisi === "Rusak" ? "RUSAK" : "MASUK",
 					itemId,
 					userId: actorUser.id,
+					requestId: boundRequestId,
 					originLocationId:
 						kondisi === "Rusak" ? null : (existing?.locationId ?? null),
 					destinationLocationId: locationId,

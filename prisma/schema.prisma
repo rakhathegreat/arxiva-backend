@@ -71,10 +71,18 @@ enum RequestStatus {
   DRAFT /// Draft request@
   MENUNGGU /// Waiting for approval
   SIAP /// Ready to take
+  DISETUJUI /// Approved (return-rusak only)
+  SERAH /// Handed over physically (return-rusak only)
   DITERIMA /// Received by partner/requester
   SELESAI /// Request fully completed
   DITOLAK /// Rejected
   DIBATALKAN /// Cancelled by the requester
+}
+
+/// Direction/kind of a request.
+enum RequestType {
+  OUTGOING /// Default: partner requests material FROM KP
+  RETURN_RUSAK /// Partner returns damaged material TO KP
 }
 
 /// Status for a signature session captured via mobile QR
@@ -372,6 +380,8 @@ model Request {
 
   status RequestStatus @default(MENUNGGU)
 
+  type RequestType @default(OUTGOING)
+
   notes String?
 
   rejectionNotes String? /// Admin note recorded when the request is rejected or cancelled
@@ -419,6 +429,8 @@ model RequestItem {
   quantity Int
 
   fulfilledQuantity Int @default(0) /// Tracks how many items have been allocated
+
+  serialNumber String? /// Specific SN returned (RETURN_RUSAK); null = consumable/generic
 
   allocations RequestAllocation[]
 

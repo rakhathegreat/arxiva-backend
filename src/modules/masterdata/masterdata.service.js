@@ -41,9 +41,16 @@ export function makeMasterDataCrud(cfg) {
 		// GET /
 		async list(req, res) {
 			try {
-				let rows = await prisma[cfg.model].findMany(
-					cfg.listInclude ? { include: cfg.listInclude } : undefined
-				);
+				const query = req.query || {};
+				const search = query.search ? String(query.search).trim() : "";
+				const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
+				let where = search && cfg.searchWhere ? cfg.searchWhere(search) : undefined;
+				if (cfg.extendWhere) where = cfg.extendWhere(req, where) ?? where;
+				let rows = await prisma[cfg.model].findMany({
+					...(where ? { where } : {}),
+					...(cfg.listInclude ? { include: cfg.listInclude } : {}),
+					...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
+				});
 				if (cfg.totalItemsWhere) {
 					rows = await Promise.all(
 						rows.map(async (row) => ({

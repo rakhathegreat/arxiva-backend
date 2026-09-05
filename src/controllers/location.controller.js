@@ -49,16 +49,32 @@ const attachSheetToLocation = async (locationId, displayName) => {
 // GET /locations
 export const getLocations = async (req, res) => {
     try {
-        const locations = await prisma.location.findMany({
-            where: {
-                name: {
-                    notIn: ["Keluar", "Diluar", "Digunakan", "Terdistribusi", "Rusak", "Hilang"]
-                },
-                type: {
-                    notIn: ["PARTNER", "BRANCH"]
-                },
-                parentId: null
+        const query = req.query || {};
+        const search = query.search ? String(query.search).trim() : "";
+        const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
+        const baseWhere = {
+            name: {
+                notIn: ["Keluar", "Diluar", "Digunakan", "Terdistribusi", "Rusak", "Hilang"]
             },
+            type: {
+                notIn: ["PARTNER", "BRANCH"]
+            },
+            parentId: null
+        };
+        const where = search
+            ? {
+                ...baseWhere,
+                AND: [{
+                    OR: [
+                        { name: { contains: search, mode: 'insensitive' } },
+                        { children: { some: { name: { contains: search, mode: 'insensitive' } } } }
+                    ]
+                }]
+            }
+            : baseWhere;
+
+        const locations = await prisma.location.findMany({
+            where,
             include: {
                 children: {
                     include: {
@@ -68,7 +84,8 @@ export const getLocations = async (req, res) => {
                 },
                 brandRules: { include: { brand: true } },
                 items: true
-            }
+            },
+            ...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
         });
 
         const formattedLocations = locations.map(loc => {

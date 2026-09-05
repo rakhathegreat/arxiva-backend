@@ -1,13 +1,21 @@
 import prisma from '../../shared/prisma.js';
 
 /**
- * Lookup user by username / nama profil mitra. Lookup-only — TIDAK membuat user.
+ * Lookup user oleh username / nama profil mitra. Lookup-only — TIDAK membuat user.
  */
 export async function findUserByName(mitra) {
 	if (!mitra || mitra === 'KP Tasikmalaya') return null;
 	return prisma.user.findFirst({
 		where: { OR: [{ username: mitra }, { profile: { nama: mitra } }] },
 	});
+}
+
+/**
+ * Temukan user role ADMIN (KP Tasikmalaya). Dipakai untuk memindahkan
+ * ownership material berstatus Rusak kembali ke KP, apa pun aktornya.
+ */
+export async function findKpAdmin() {
+	return prisma.user.findFirst({ where: { role: 'ADMIN' } });
 }
 
 /**

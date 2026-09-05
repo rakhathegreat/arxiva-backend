@@ -7,7 +7,16 @@ export const getUsers = async (req, res) => {
 		// Mitra hanya boleh melihat sesama mitra yang aktif (daftar tujuan peminjaman).
 		// Admin melihat semua user.
 		const isAdmin = req.user?.role === "ADMIN";
-		const where = isAdmin ? {} : { role: "MITRA", isAktif: true };
+		const query = req.query || {};
+		const search = query.search ? String(query.search).trim() : "";
+		const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
+		const where = isAdmin
+			? search
+				? { OR: [{ username: { contains: search, mode: "insensitive" } }, { profile: { is: { nama: { contains: search, mode: "insensitive" } } } }] }
+				: {}
+			: search
+				? { role: "MITRA", isAktif: true, OR: [{ username: { contains: search, mode: "insensitive" } }, { profile: { is: { nama: { contains: search, mode: "insensitive" } } } }] }
+				: { role: "MITRA", isAktif: true };
 
 		const users = await prisma.user.findMany({
 			where,
@@ -21,6 +30,7 @@ export const getUsers = async (req, res) => {
 				profile: true,
 			},
 			orderBy: { createdAt: "desc" },
+			...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
 		});
 		res.json(users);
 	} catch (error) {

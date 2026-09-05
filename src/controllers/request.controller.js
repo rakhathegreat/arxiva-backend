@@ -7,7 +7,7 @@ import {
 	completeRequest,
 } from '../modules/requestflow/requestflow.service.js';
 import { validateTransition } from '../modules/requestflow/rules.js';
-import { ensureDeliveryDocument } from '../modules/bastdoc/service.js';
+import { ensureDeliveryDocument, finalizeDeliveryDocument } from '../modules/bastdoc/service.js';
 import { createNotification } from '../modules/notification/service.js';
 import fs from 'fs';
 import path from 'path';
@@ -53,6 +53,7 @@ export const getRequests = async (req, res) => {
                 : null,
             destination: r.destinationUser || null,
             status: r.status,
+            type: r.type,
             notes: r.notes || "-",
             rejectionNotes: r.rejectionNotes || null,
             adminRemarks: r.rejectionNotes || null,
@@ -68,7 +69,8 @@ export const getRequests = async (req, res) => {
                 category: item.materialCategory.nama,
                 brand: item.brand?.nama || "-",
                 model: item.model?.nama || "-",
-                quantity: item.quantity
+                quantity: item.quantity,
+                serialNumber: item.serialNumber || null
             })),
             deliveryDocument: r.deliveryDocument ? {
                 kpSignedById: r.deliveryDocument.kpSignedById,
@@ -128,7 +130,8 @@ export const getRequestById = async (req, res) => {
 // POST /requests
 export const createRequest = async (req, res) => {
     try {
-        const { requesterId, notes, items, destinationUserId } = req.body;
+        const { requesterId, notes, items, destinationUserId, type } = req.body;
+        const requestType = type === 'RETURN_RUSAK' ? 'RETURN_RUSAK' : 'OUTGOING';
 
         // Tujuan request (opsional) = mitra lain yang akan menerima barang pinjaman.
         // Hanya boleh menunjuk mitra aktif yang ada, dan bukan dirinya sendiri.
@@ -151,6 +154,7 @@ export const createRequest = async (req, res) => {
         const newRequest = await prisma.request.create({
             data: {
                 requestNumber,
+                type: requestType,
                 requesterId,
                 destinationUserId: destinationUserId || null,
                 notes,
@@ -159,7 +163,8 @@ export const createRequest = async (req, res) => {
                         materialCategoryId: item.materialCategoryId,
                         brandId: item.brandId || null,
                         modelId: item.modelId || null,
-                        quantity: item.quantity
+                        quantity: item.quantity,
+                        serialNumber: requestType === 'RETURN_RUSAK' ? (item.serialNumber || null) : undefined
                     }))
                 }
             },
@@ -341,14 +346,93 @@ async function regenerateDraftBast(requestId, user) {
     });
 }
 
-// PUT /requests/:id/status
+/**
+ * Hasilkan BAST untuk pengajuan material rusak (RETURN_RUSAK) saat admin
+ * menyetujui (DISETUJUI). Item diambil dari requestItems (bukan alokasi),
+ * karena pengembalian rusak tidak melalui alokasi keluar.
+ */
+async function regenerateReturnRusakBast(requestId, user) {
+    const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
+        actingAdmin: user,
+    });
+
+    const reqFull = await prisma.request.findUnique({
+        where: { id: requestId },
+        include: {
+            requester: { include: { profile: true } },
+            requestItems: {
+                include: {
+                    materialCategory: true,
+                    brand: true,
+                    model: { include: { brand: true } },
+                },
+            },
+        },
+    });
+
+    const itemsSnapshotData = reqFull.requestItems.map((ri) => {
+        const brandName = ri.model?.brand?.name || ri.brand?.nama || null;
+        return {
+            materialNumber: ri.model?.code || '-',
+            materialName: ri.model?.deskripsi || ri.model?.nama || ri.materialCategory.nama || '-',
+            brandName,
+            serialNumber: ri.serialNumber || '-',
+            quantity: ri.quantity,
+            unit: 'Unit',
+            kondisi: 'Rusak',
+        };
+    });
+
+    const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
+
+    const returnBastData = {
+        id: reqFull.id,
+        requestNumber: reqFull.requestNumber,
+        title: reqFull.title,
+        status: 'DISETUJUI',
+        notes: reqFull.notes,
+        requestedAt: reqFull.requestedAt,
+        processedAt: new Date(),
+        completedAt: null,
+        partnerType: reqFull.requester?.profile?.partnerType || 'gangguan',
+        requesterName: ptName,
+        picName: ptName,
+        picSignatureUrl: null, // Unsigned sampai penyerahan (SERAH)
+        generatedByName: adminName,
+        kpSignatureUrl: adminSigUrl,
+        allocations: itemsSnapshotData
+    };
+
+    const draftFilename = `bast-rusak-${reqFull.requestNumber}.pdf`;
+    const { relativeFilePath } = await generateAndSaveBastPdf(returnBastData, draftFilename);
+
+    await prisma.deliveryDocument.upsert({
+        where: { requestId: requestId },
+        create: {
+            requestId: requestId,
+            documentNumber: `BAST/REQ/${reqFull.requestNumber}`,
+            filePath: relativeFilePath,
+            kpName: adminName,
+            kpSignatureUrl: adminSigUrl,
+            kpSignedAt: new Date(),
+            itemsSnapshot: JSON.stringify(itemsSnapshotData),
+            generatedById: user.id
+        },
+        update: {
+            filePath: relativeFilePath,
+            kpName: adminName,
+            kpSignatureUrl: adminSigUrl,
+            itemsSnapshot: JSON.stringify(itemsSnapshotData)
+        }
+    });
+}
 export const updateRequestStatus = async (req, res) => {
     try {
         const { id } = req.params;
         const { status, rejectionNotes } = req.body;
         const user = req.user;
 
-        const validStatuses = ['DRAFT', 'MENUNGGU', 'SIAP', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
+        const validStatuses = ['DRAFT', 'MENUNGGU', 'SIAP', 'DISETUJUI', 'SERAH', 'SELESAI', 'DITOLAK', 'DIBATALKAN'];
         if (!validStatuses.includes(status)) {
             return res.status(400).json({ message: 'Invalid status' });
         }
@@ -370,10 +454,12 @@ export const updateRequestStatus = async (req, res) => {
         }
 
         // RBAC + urutan transisi — satu aturan di modul requestflow
-        const transition = validateTransition(request.status, status, user.role, request.requesterId, user.id);
+        const transition = validateTransition(request.status, status, user.role, request.requesterId, user.id, request.type);
         if (!transition.ok) {
             return res.status(transition.httpStatus).json({ message: transition.message });
         }
+
+        const isReturnRusak = request.type === 'RETURN_RUSAK';
 
         const dataToUpdate = { status };
         const now = new Date();
@@ -384,17 +470,27 @@ export const updateRequestStatus = async (req, res) => {
             dataToUpdate.approvedAt = now;
             dataToUpdate.processedAt = now;
         }
+        if (isReturnRusak && status === 'DISETUJUI') {
+            dataToUpdate.approvedAt = now;
+            dataToUpdate.processedAt = now;
+        }
+        if (isReturnRusak && status === 'SERAH') {
+            dataToUpdate.shippedAt = now;
+        }
         if (status === 'SELESAI') dataToUpdate.completedAt = now;
 
-        // Auto-generate / perbarui BAST Draft saat status menjadi SIAP
+        // Auto-generate / perbarui BAST Draft saat status menjadi SIAP (keluar)
+        // atau DISETUJUI (pengajuan material rusak)
         if (status === 'SIAP') {
             await regenerateDraftBast(id, user);
+        } else if (isReturnRusak && status === 'DISETUJUI') {
+            await regenerateReturnRusakBast(id, user);
         }
 
         if (status === 'SELESAI') {
             const updated = await prisma.$transaction(async (tx) => {
-                // SATU jalur completion (D9/D10): lokasi mitra + kapasitas +
-                // status + transfer item + ledger KELUAR.
+                // SATU jalur completion (per-tipe): keluar = transfer item + ledger
+                // KELUAR; material rusak = verifikasi pengiriman lalu finalisasi status.
                 return completeRequest(tx, request, user);
             });
             return res.json({ message: 'Request status updated and items mutated', request: updated });
@@ -434,6 +530,9 @@ export const updateRequestStatus = async (req, res) => {
         }
     } catch (error) {
         console.error('Error in updateRequestStatus:', error);
+        if (error.code === "RETURN_RUSAK_INCOMPLETE") {
+            return res.status(409).json({ message: error.message, reason: error.code });
+        }
         res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
     }
 };
@@ -485,7 +584,12 @@ export const downloadBast = async (req, res) => {
         }
 
         // Hanya bisa generate BAST untuk status SIAP atau SELESAI
-        if (!['SIAP', 'SELESAI'].includes(request.status)) {
+        // (material rusak: DISETUJUI / SERAH / SELESAI)
+        if (request.type === 'RETURN_RUSAK') {
+            if (!['DISETUJUI', 'SERAH', 'SELESAI'].includes(request.status)) {
+                return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus DISETUJUI, SERAH, atau SELESAI' });
+            }
+        } else if (!['SIAP', 'SELESAI'].includes(request.status)) {
             return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus SIAP atau SELESAI' });
         }
 
@@ -569,7 +673,12 @@ export const downloadBastPdf = async (req, res) => {
         }
 
         // Hanya bisa generate BAST untuk status SIAP atau SELESAI
-        if (!['SIAP', 'SELESAI'].includes(request.status)) {
+        // (material rusak: DISETUJUI / SERAH / SELESAI)
+        if (request.type === 'RETURN_RUSAK') {
+            if (!['DISETUJUI', 'SERAH', 'SELESAI'].includes(request.status)) {
+                return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus DISETUJUI, SERAH, atau SELESAI' });
+            }
+        } else if (!['SIAP', 'SELESAI'].includes(request.status)) {
             return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus SIAP atau SELESAI' });
         }
 
@@ -585,7 +694,8 @@ export const downloadBastPdf = async (req, res) => {
         });
 
         // If static file exists, stream directly for legal immutability
-        if (deliveryDocument.finalFilePath && request.status === 'SELESAI') {
+        const isFinalStatus = request.status === 'SELESAI' || (request.type === 'RETURN_RUSAK' && request.status === 'SERAH');
+        if (deliveryDocument.finalFilePath && isFinalStatus) {
             const absFinal = path.resolve(__dirname, '../../public', deliveryDocument.finalFilePath.replace(/^\//, ''));
             if (fs.existsSync(absFinal)) {
                 res.setHeader('Content-Type', 'application/pdf');
@@ -756,6 +866,85 @@ export const signBast = async (req, res) => {
             where: { id: deliveryDocument.id },
             data: updateData
         });
+
+        // Alur pengajuan material rusak (RETURN_RUSAK): tanda tangan tidak
+        // otomatis menyelesaikan request. Admin TTD saat DISETUJUI; mitra TTD
+        // saat SERAH → BAST difinalisasi (siap diserahkan), SELESAI ditetapkan
+        // admin setelah intake terikat selesai.
+        if (request.type === 'RETURN_RUSAK') {
+            if (user.role === 'ADMIN') {
+                return res.json({
+                    message: 'BAST signed successfully',
+                    document: updatedDocument,
+                    isFullySigned: false,
+                    requestStatus: request.status,
+                });
+            }
+
+            if (user.role === 'MITRA') {
+                const reqFull = await prisma.request.findUnique({
+                    where: { id: request.id },
+                    include: {
+                        requester: { include: { profile: true } },
+                        deliveryDocument: true,
+                        requestItems: {
+                            include: { materialCategory: true, brand: true, model: { include: { brand: true } } },
+                        },
+                    },
+                });
+                const { name: adminName2, signatureUrl: adminSig2 } = await resolveAdminIdentity({
+                    deliveryDocument: reqFull.deliveryDocument,
+                    actingAdmin: user,
+                });
+                const now = new Date();
+                const ptName = reqFull.requester?.profile?.nama || reqFull.requester?.username || 'PT / Mitra';
+                const itemsSnapshotData = reqFull.requestItems.map((ri) => ({
+                    materialNumber: ri.model?.code || '-',
+                    materialName: ri.model?.deskripsi || ri.model?.nama || ri.materialCategory.nama || '-',
+                    serialNumber: ri.serialNumber || '-',
+                    quantity: ri.quantity,
+                    unit: 'Unit',
+                    kondisi: 'Rusak',
+                }));
+                const finalBastData = {
+                    id: reqFull.id,
+                    requestNumber: reqFull.requestNumber,
+                    title: reqFull.title,
+                    status: 'SERAH',
+                    notes: reqFull.notes,
+                    requestedAt: reqFull.requestedAt,
+                    processedAt: reqFull.processedAt || now,
+                    completedAt: null,
+                    partnerType: reqFull.requester?.profile?.partnerType || 'gangguan',
+                    requesterName: ptName,
+                    signerName: ptName,
+                    signerSignatureUrl: user.profile?.picSignatureUrl || null,
+                    kpName: adminName2,
+                    kpSignatureUrl: adminSig2,
+                    allocations: itemsSnapshotData,
+                };
+                const finalFilename = `bast-rusak-final-${reqFull.requestNumber}.pdf`;
+                const { relativeFilePath } = await generateAndSaveBastPdf(finalBastData, finalFilename);
+                await finalizeDeliveryDocument({
+                    requestId: reqFull.id,
+                    requestNumber: reqFull.requestNumber,
+                    generatedById: user.id,
+                    now,
+                    signerName: ptName,
+                    signatureUrl: user.profile?.picSignatureUrl || null,
+                    adminName: adminName2,
+                    adminSignatureUrl: adminSig2,
+                    filePath: relativeFilePath,
+                    itemsSnapshot: itemsSnapshotData,
+                });
+                return res.json({
+                    message: 'BAST returned material final',
+                    document: await prisma.deliveryDocument.findUnique({ where: { requestId: reqFull.id } }),
+                    isFullySigned: true,
+                    requestStatus: request.status,
+                });
+            }
+        }
 
         // Cek apakah kedua TTD sudah lengkap — jika ya, ubah status request ke SELESAI
         const isFullySigned = !!(updatedDocument.kpSignedById && updatedDocument.picSignedById);

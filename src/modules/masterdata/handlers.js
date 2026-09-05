@@ -9,6 +9,7 @@ export const categoryHandlers = makeMasterDataCrud({
 	model: 'materialCategory',
 	label: 'Category',
 	responseKey: 'category',
+	searchWhere: (q) => ({ nama: { contains: q, mode: 'insensitive' } }),
 	totalItemsWhere: (row) => ({ model: { materialCategoryId: row.id } }),
 	create: {
 		buildData(body) {
@@ -44,6 +45,12 @@ export const brandHandlers = makeMasterDataCrud({
 	model: 'brand',
 	label: 'Brand',
 	responseKey: 'brand',
+	searchWhere: (q) => ({
+		OR: [
+			{ nama: { contains: q, mode: 'insensitive' } },
+			{ identifier: { contains: q, mode: 'insensitive' } },
+		],
+	}),
 	listInclude: { models: { include: { materialCategory: true } } },
 	getInclude: { models: { include: { materialCategory: true } } },
 	totalItemsWhere: (row) => ({ model: { brandId: row.id } }),
@@ -75,6 +82,22 @@ export const materialModelHandlers = makeMasterDataCrud({
 	model: 'materialModel',
 	label: 'Material model',
 	responseKey: 'model',
+	searchWhere: (q) => ({
+		OR: [
+			{ nama: { contains: q, mode: 'insensitive' } },
+			{ brand: { is: { nama: { contains: q, mode: 'insensitive' } } } },
+			{ materialCategory: { is: { nama: { contains: q, mode: 'insensitive' } } } },
+		],
+	}),
+	extendWhere: (req, where) => {
+		const query = req.query || {};
+		const brand = query.brand ? String(query.brand).trim() : "";
+		if (!brand) return where;
+		const brandClause = {
+			brand: { is: { nama: { contains: brand, mode: 'insensitive' } } },
+		};
+		return where ? { AND: [where, brandClause] } : brandClause;
+	},
 	listInclude: {
 		materialCategory: true,
 		brand: true,

@@ -3,7 +3,7 @@ import { logMutation } from '../shared/utils/mutation.util.js';
 import { formatLocationDisplay } from '../shared/utils/location.util.js';
 import { getOrCreateCategory, getOrCreateBrand, getOrCreateMaterialModel } from '../modules/catalog/service.js';
 import { resolveLocationId, assertCapacityAvailableUnlessExit } from '../modules/storage/service.js';
-import { resolveActorId } from '../modules/identity/service.js';
+import { resolveActorId, findKpAdmin } from '../modules/identity/service.js';
 import { statusToEnum, enumToDisplay } from '../modules/items/service.js';
 
 export const getItems = async (req, res) => {
@@ -420,7 +420,10 @@ export const updateItem = async (req, res) => {
         const isChangingToRusak = item.status !== 'rusak' && prismaStatus === 'rusak';
         const isMovingLocation = locationId !== item.locationId;
         if (isChangingToRusak) {
-            createdById = await resolveActorId(mitra || req.user, req.user);
+            // Material Rusak menjadi milik KP (admin) apa pun aktornya,
+            // sehingga "Pemilik / Tempat" tampil sebagai KP Tasikmalaya.
+            const kpAdmin = await findKpAdmin();
+            createdById = kpAdmin?.id ?? (await resolveActorId(mitra || req.user, req.user));
         }
 
         let updatedItem;

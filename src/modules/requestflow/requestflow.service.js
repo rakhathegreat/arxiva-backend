@@ -125,6 +125,66 @@ export async function ensurePartnerLocation(tx, requesterId) {
 }
 
 /**
+ * Verifikasi pengajuan material rusak lengkap sebelum SELESAI:
+ *  - setiap requestItem (per SN untuk ber-SN, per jumlah untuk konsumabel)
+ *    sudah di-input via intake RUSAK yang terikat requestId ini,
+ *  - BAST sudah dibuat (DeliveryDocument.requestId) .
+ * Tidak ada transfer item — material rusak sudah menjadi milik KP saat intake.
+ *
+ * @returns {Promise<{ok: boolean, message?: string}>}
+ */
+export async function assertReturnRusakComplete(tx, request) {
+	const deliveredRows = await tx.itemMutation.findMany({
+		where: { requestId: request.id, type: 'RUSAK' },
+		select: { itemId: true },
+	});
+
+	const deliveredSet = new Set(deliveredRows.map((r) => r.itemId));
+
+	// Untuk requestItem ber-SN: butuh item dengan SN tersebut ter-return (RUSAK).
+	// SN dinormalisasi (upper/trim) — konsisten dgn intake.
+	const normalize = (s) => String(s || '').trim().toUpperCase();
+	const snItems = request.requestItems?.filter((ri) => ri.serialNumber) ?? [];
+	if (snItems.length > 0) {
+		const normalizedSns = snItems.map((ri) => normalize(ri.serialNumber));
+		const items = await tx.item.findMany({
+			where: { serialNumber: { in: normalizedSns } },
+			select: { id: true, serialNumber: true },
+		});
+		const idBySn = new Map(items.map((it) => [normalize(it.serialNumber), it.id]));
+		for (const ri of snItems) {
+			const itemId = idBySn.get(normalize(ri.serialNumber));
+			if (!itemId || !deliveredSet.has(itemId)) {
+				return {
+					ok: false,
+					message: `Belum semua material rusak yang diajukan tiba (SN ${ri.serialNumber} belum di-input)`,
+				};
+			}
+		}
+	}
+
+	// Untuk konsumabel (tanpa SN): jumlah RUSAK ter-bound harus memenuhi total quantity.
+	const consumedQuantity = request.requestItems?.reduce(
+		(acc, ri) => acc + (ri.serialNumber ? 0 : ri.quantity),
+		0
+	) || 0;
+	const deliveredRusakCount = deliveredRows.length;
+	if (deliveredRusakCount < consumedQuantity) {
+		return {
+			ok: false,
+			message: `Belum semua material rusak yang diajukan tiba (${deliveredRusakCount}/${consumedQuantity} unit di-input)`,
+		};
+	}
+
+	const doc = await tx.deliveryDocument.findUnique({ where: { requestId: request.id } });
+	if (!doc || !doc.finalFilePath) {
+		return { ok: false, message: 'BAST pengajuan material rusak belum final (belum lengkap tanda tangan)' };
+	}
+
+	return { ok: true };
+}
+
+/**
  * SATU jalur penyelesaian request (D9/D10). WAJIB dipanggil dalam $transaction.
  *
  * 1. Resolusi/auto-provision lokasi tujuan mitra
@@ -132,9 +192,40 @@ export async function ensurePartnerLocation(tx, requesterId) {
  * 3. Update status SELESAI + completedAt
  * 4. Transfer item (digunakan, owner=requester, pindah lokasi) + ledger KELUAR per alokasi
  *
+ * Untuk tipe RETURN_RUSAK: TIDAK ada transfer item — verifikasi pengiriman lalu
+ * finalisasi status (material rusak sudah milik KP dari intake terikat).
+ *
  * @returns {Promise<object>} request ter-update
  */
 export async function completeRequest(tx, request, actor) {
+	if (request.type === 'RETURN_RUSAK') {
+		const check = await assertReturnRusakComplete(tx, request);
+		if (!check.ok) {
+			const err = new Error(check.message);
+			err.code = 'RETURN_RUSAK_INCOMPLETE';
+			throw err;
+		}
+
+		const updatedReq = await tx.request.update({
+			where: { id: request.id },
+			data: { status: 'SELESAI', completedAt: new Date() },
+			include: { requester: { include: { profile: true } } },
+		});
+
+		await createNotification(
+			{
+				userId: request.requesterId,
+				title: 'Pengajuan material rusak selesai',
+				message: `Pengajuan material rusak ${request.requestNumber} telah selesai dan diterima KP.`,
+				type: 'REQUEST',
+				referenceId: request.id,
+			},
+			tx
+		);
+
+		return updatedReq;
+	}
+
 	const destinationLocationId = await ensurePartnerLocation(tx, request.requesterId);
 
 	const incomingCount = request.requestItems.reduce(

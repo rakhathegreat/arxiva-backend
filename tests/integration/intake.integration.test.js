@@ -24,6 +24,12 @@ beforeAll(async () => {
 afterAll(async () => {
 	await prisma.itemMutation.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
 	await prisma.item.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
+	// Hapus model milik run ini (termasuk model global "Default" yang dipakai
+	// item RUSAK tanpa tipe) sebelum brand/kategori dihapus.
+	const brs = await prisma.brand.findMany({ where: { nama: { startsWith: `BRD-${RUN}` } }, select: { id: true } });
+	const cats = await prisma.materialCategory.findMany({ where: { nama: { startsWith: `CAT-${RUN}` } }, select: { id: true } });
+	await prisma.materialModel.deleteMany({ where: { brandId: { in: brs.map((b) => b.id) } } });
+	await prisma.materialModel.deleteMany({ where: { materialCategoryId: { in: cats.map((c) => c.id) } } });
 	await prisma.materialModel.deleteMany({ where: { nama: { startsWith: `MDL-${RUN}` } } });
 	await prisma.brand.deleteMany({ where: { nama: { startsWith: `BRD-${RUN}` } } });
 	await prisma.materialCategory.deleteMany({ where: { nama: { startsWith: `CAT-${RUN}` } } });
