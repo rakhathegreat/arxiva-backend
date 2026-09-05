@@ -84,9 +84,9 @@ export const materialModelHandlers = makeMasterDataCrud({
 	responseKey: 'model',
 	searchWhere: (q) => ({
 		OR: [
-			{ nama: { contains: q, mode: 'insensitive' } },
-			{ brand: { is: { nama: { contains: q, mode: 'insensitive' } } } },
-			{ materialCategory: { is: { nama: { contains: q, mode: 'insensitive' } } } },
+			{ nama: { contains: q } },
+			{ brand: { is: { nama: { contains: q } } } },
+			{ materialCategory: { is: { nama: { contains: q } } } },
 		],
 	}),
 	extendWhere: (req, where) => {
@@ -94,7 +94,7 @@ export const materialModelHandlers = makeMasterDataCrud({
 		const brand = query.brand ? String(query.brand).trim() : "";
 		if (!brand) return where;
 		const brandClause = {
-			brand: { is: { nama: { contains: brand, mode: 'insensitive' } } },
+			brand: { is: { nama: { contains: brand } } },
 		};
 		return where ? { AND: [where, brandClause] } : brandClause;
 	},

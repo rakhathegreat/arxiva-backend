@@ -12,10 +12,10 @@ export const getUsers = async (req, res) => {
 		const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
 		const where = isAdmin
 			? search
-				? { OR: [{ username: { contains: search, mode: "insensitive" } }, { profile: { is: { nama: { contains: search, mode: "insensitive" } } } }] }
+				? { OR: [{ username: { contains: search } }, { profile: { is: { nama: { contains: search } } } }] }
 				: {}
 			: search
-				? { role: "MITRA", isAktif: true, OR: [{ username: { contains: search, mode: "insensitive" } }, { profile: { is: { nama: { contains: search, mode: "insensitive" } } } }] }
+				? { role: "MITRA", isAktif: true, OR: [{ username: { contains: search } }, { profile: { is: { nama: { contains: search } } } }] }
 				: { role: "MITRA", isAktif: true };
 
 		const users = await prisma.user.findMany({
