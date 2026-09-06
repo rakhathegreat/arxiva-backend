@@ -8,6 +8,60 @@ const parseId = (raw) => {
 const fail = (res, status, message) => res.status(status).json({ message });
 
 /**
+ * Batch-count items for each row using a single groupBy query
+ * instead of N individual count queries.
+ *
+ * `totalItemsWhere(row)` harus berbentuk `{ model: { <fk>: row.id } }`
+ * agar FK path (mis. materialCategoryId / brandId) bisa dideteksi otomatis.
+ * Untuk brand/category, FK melewati relasi Item.model → MaterialModel.
+ */
+async function batchItemCount(rows, totalItemsWhere) {
+	if (!rows.length) return rows;
+
+	// Determine the FK path by inspecting the first where clause
+	const sampleWhere = totalItemsWhere(rows[0]);
+	const fkPath = Object.keys(sampleWhere.model || {})[0]; // e.g. "materialCategoryId" or "brandId"
+
+	// 1. Collect all parent IDs from rows
+	const parentIds = rows.map((r) => r.id);
+
+	// 2. Find all models that belong to these parents
+	const models = await prisma.materialModel.findMany({
+		where: { [fkPath]: { in: parentIds } },
+		select: { id: true, [fkPath]: true },
+	});
+
+	if (!models.length) {
+		return rows.map((r) => ({ ...r, totalItems: 0 }));
+	}
+
+	const modelIds = models.map((m) => m.id);
+
+	// 3. Count items per modelId in a single query
+	const groups = await prisma.item.groupBy({
+		by: ['modelId'],
+		where: { modelId: { in: modelIds } },
+		_count: { id: true },
+	});
+
+	// 4. Build modelId → count map
+	const countByModel = new Map(groups.map((g) => [g.modelId, g._count.id]));
+
+	// 5. Aggregate counts: modelId → parent ID → total
+	const countByParent = new Map();
+	for (const m of models) {
+		const parentId = m[fkPath];
+		const itemCount = countByModel.get(m.id) || 0;
+		countByParent.set(parentId, (countByParent.get(parentId) || 0) + itemCount);
+	}
+
+	return rows.map((r) => ({
+		...r,
+		totalItems: countByParent.get(r.id) || 0,
+	}));
+}
+
+/**
  * Factory CRUD master-data — menggantikan 4 controller kerangka-identik
  * (~610 baris) dengan satu parameterisasi. Kontrak respons dipertahankan
  * persis: pesan, shape JSON, dan status code.
@@ -52,12 +106,7 @@ export function makeMasterDataCrud(cfg) {
 					...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
 				});
 				if (cfg.totalItemsWhere) {
-					rows = await Promise.all(
-						rows.map(async (row) => ({
-							...row,
-							totalItems: (await prisma.item.count({ where: cfg.totalItemsWhere(row) })) ?? 0,
-						}))
-					);
+					rows = await batchItemCount(rows, cfg.totalItemsWhere);
 				}
 				if (cfg.decorateList) rows = await cfg.decorateList(rows);
 				res.json(rows);
