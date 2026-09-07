@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Tanda Tangan Digital - Arxiva</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #09090b;
+      color: #f4f4f5;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 16px;
+      background-color: #18181b;
+      border-bottom: 1px solid #27272a;
+      flex-shrink: 0;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 12px 0px;
+    }
+
+    .header-title svg {
+      color: #34d399;
+    }
+
+    .btn-clear {
+      background: #333337;
+      border: 1px solid #27272a;
+      color: #a1a1aa;
+      font-size: 14px;
+      font-weight: 500;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+
+    .btn-clear:active {
+      background-color: #27272a;
+      color: #ffffff;
+    }
+
+    .input-section {
+      padding: 14px 16px;
+      background-color: rgba(24, 24, 27, 0.7);
+      border-bottom: 1px solid #27272a;
+      flex-shrink: 0;
+      display: none;
+    }
+
+    .label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #d4d4d8;
+      margin-bottom: 6px;
+    }
+
+    .label span {
+      color: #ef4444;
+    }
+
+    .input {
+      width: 100%;
+      padding: 10px 14px;
+      background-color: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 8px;
+      color: #ffffff;
+      font-size: 14px;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: #34d399;
+    }
+
+    .canvas-container {
+      flex: 1;
+      position: relative;
+      background-color: #ffffff;
+      overflow: hidden;
+    }
+
+    canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    .canvas-hint {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #d4d4d8;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+
+    .footer {
+      padding: 16px;
+      background-color: #18181b;
+      border-top: 1px solid #27272a;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .error-msg {
+      color: #f87171;
+      background-color: rgba(239, 68, 68, 0.1);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 13px;
+      text-align: center;
+      display: none;
+    }
+
+    .btn-submit {
+      width: 100%;
+      padding: 14px;
+      background-color: #059669;
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-submit:active {
+      background-color: #047857;
+    }
+
+    .btn-submit:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .status-screen {
+      position: fixed;
+      inset: 0;
+      background-color: #09090b;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 32px;
+      text-align: center;
+      z-index: 50;
+    }
+
+    .status-icon-box {
+      width: 96px;
+      height: 96px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+    }
+
+    .status-icon-box.success {
+      background-color: rgba(16, 185, 129, 0.15);
+      color: #10b981;
+    }
+
+    .status-icon-box.error {
+      background-color: rgba(239, 68, 68, 0.15);
+      color: #ef4444;
+    }
+
+    .status-title {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+    }
+
+    .status-desc {
+      color: #a1a1aa;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .spinner {
+      width: 24px;
+      height: 24px;
+      border: 3px solid rgba(255, 255, 255, 0.3);
+      border-radius: 50%;
+      border-top-color: #ffffff;
+      animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Loading State -->
+  <div id="loading-screen" class="status-screen">
+    <div class="spinner" style="width:36px; height:36px; border-top-color:#10b981;"></div>
+  </div>
+
+  <!-- Success / Expired Screen -->
+  <div id="status-screen" class="status-screen" style="display: none;">
+    <div id="status-icon" class="status-icon-box success"></div>
+    <h1 id="status-title" class="status-title"></h1>
+    <p id="status-desc" class="status-desc"></p>
+  </div>
+
+  <!-- Main Signature Interface -->
+  <div id="main-interface" style="display: flex; flex-direction: column; height: 100dvh; width: 100vw;">
+    <div class="header">
+      <div class="header-title">
+        Formulir Pengambilan Material
+      </div>
+    </div>
+
+    <div class="input-section" id="input-section">
+      <label class="label" for="signerName">Nama Penerima / PIC <span>*</span></label>
+      <input type="text" id="signerName" class="input" placeholder="Masukkan nama Anda..." autocomplete="off">
+    </div>
+
+    <div class="canvas-container" id="canvas-container">
+      <button type="button" id="btn-clear" onclick=""
+        style="position:absolute;top:12px;right:12px;z-index:10;display:flex;align-items:center;gap:6px;background:rgba(24,24,27,0.85);border:1px solid rgba(63,63,70,0.8);color:#e4e4e7;font-size:12px;font-weight:500;padding:6px 14px;border-radius:8px;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 4px 12px rgba(0,0,0,0.25);">
+        Bersihkan
+      </button>
+      <canvas id="sig-canvas"></canvas>
+      <div class="canvas-hint" id="canvas-hint">Tanda Tangan Disini</div>
+    </div>
+
+    <div class="footer">
+      <div class="error-msg" id="error-msg"></div>
+      <button type="button" class="btn-submit" id="btn-submit">Simpan</button>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // Extract Session ID from URL path: /signature-session/:id/mobile
+      const pathParts = window.location.pathname.split('/').filter(Boolean);
+      const sessionId = pathParts[1] || '';
+
+      const loadingScreen = document.getElementById('loading-screen');
+      const statusScreen = document.getElementById('status-screen');
+      const statusIcon = document.getElementById('status-icon');
+      const statusTitle = document.getElementById('status-title');
+      const statusDesc = document.getElementById('status-desc');
+      const mainInterface = document.getElementById('main-interface');
+      const inputSection = document.getElementById('input-section');
+      const signerNameInput = document.getElementById('signerName');
+      const canvasContainer = document.getElementById('canvas-container');
+      const canvas = document.getElementById('sig-canvas');
+      const canvasHint = document.getElementById('canvas-hint');
+      const btnClear = document.getElementById('btn-clear');
+      const btnSubmit = document.getElementById('btn-submit');
+      const errorMsg = document.getElementById('error-msg');
+
+      let ctx = null;
+      let isDrawing = false;
+      let hasDrawn = false;
+      let isPengambilan = false;
+
+      // API Endpoints relative to current host
+      const apiBase = window.location.origin;
+
+      async function initSession() {
+        if (!sessionId) {
+          showError('Sesi tidak valid.');
+          return;
+        }
+        try {
+          const res = await fetch(`${apiBase}/signature-session/${sessionId}`);
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            if (res.status === 400 && data.message === 'Session expired') {
+              showStatus('expired', 'Sesi Kedaluwarsa', 'Sesi QR Code telah kedaluwarsa. Silakan scan ulang QR Code dari perangkat desktop.');
+            } else {
+              showError(data.message || 'Gagal memuat sesi tanda tangan.');
+            }
+            return;
+          }
+
+          const session = await res.json();
+          if (session.status === 'COMPLETED') {
+            showStatus('success', 'Tanda Tangan Berhasil!', 'Tanda tangan telah dikirim ke perangkat desktop.');
+            return;
+          }
+
+          if (session.requestId) {
+            isPengambilan = true;
+            inputSection.style.display = 'block';
+          }
+
+          loadingScreen.style.display = 'none';
+          setupCanvas();
+        } catch (err) {
+          showError('Periksa koneksi internet Anda.');
+        }
+      }
+
+      function showStatus(type, title, desc) {
+        loadingScreen.style.display = 'none';
+        mainInterface.style.display = 'none';
+        statusScreen.style.display = 'flex';
+        statusIcon.className = `status-icon-box ${type}`;
+        statusIcon.innerHTML = type === 'success'
+          ? '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'
+          : '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+        statusTitle.textContent = title;
+        statusDesc.textContent = desc;
+      }
+
+      function showError(msg) {
+        showStatus('error', 'Gagal', msg);
+      }
+
+      function setupCanvas() {
+        ctx = canvas.getContext('2d');
+        resizeCanvas();
+        window.addEventListener('resize', resizeCanvas);
+
+        // Pointer / Touch / Mouse Event Listeners
+        canvas.addEventListener('mousedown', startDrawing);
+        canvas.addEventListener('mousemove', draw);
+        canvas.addEventListener('mouseup', stopDrawing);
+        canvas.addEventListener('mouseleave', stopDrawing);
+
+        canvas.addEventListener('touchstart', (e) => {
+          e.preventDefault();
+          startDrawing(getTouchPos(e));
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', (e) => {
+          e.preventDefault();
+          draw(getTouchPos(e));
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', (e) => {
+          e.preventDefault();
+          stopDrawing();
+        }, { passive: false });
+
+        btnClear.addEventListener('click', clearCanvas);
+        btnSubmit.addEventListener('click', handleSubmit);
+      }
+
+      function resizeCanvas() {
+        const rect = canvasContainer.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        ctx.lineWidth = 2.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#000000';
+      }
+
+      function getTouchPos(e) {
+        const touch = e.touches[0];
+        const rect = canvas.getBoundingClientRect();
+        return {
+          clientX: touch.clientX,
+          clientY: touch.clientY
+        };
+      }
+
+      function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        return {
+          x: e.clientX - rect.left,
+          y: e.clientY - rect.top
+        };
+      }
+
+      function startDrawing(e) {
+        isDrawing = true;
+        const pos = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+        if (!hasDrawn) {
+          hasDrawn = true;
+          canvasHint.style.display = 'none';
+          hideInlineError();
+        }
+      }
+
+      function draw(e) {
+        if (!isDrawing) return;
+        const pos = getPos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
+
+      function stopDrawing() {
+        if (isDrawing) {
+          ctx.closePath();
+          isDrawing = false;
+        }
+      }
+
+      function clearCanvas() {
+        const rect = canvasContainer.getBoundingClientRect();
+        ctx.clearRect(0, 0, rect.width, rect.height);
+        hasDrawn = false;
+        canvasHint.style.display = 'block';
+        hideInlineError();
+      }
+
+      function displayInlineError(msg) {
+        errorMsg.textContent = msg;
+        errorMsg.style.display = 'block';
+      }
+
+      function hideInlineError() {
+        errorMsg.style.display = 'none';
+      }
+
+      async function handleSubmit() {
+        if (isPengambilan && !signerNameInput.value.trim()) {
+          displayInlineError('Silakan isi nama penerima / PIC.');
+          return;
+        }
+        if (!hasDrawn) {
+          displayInlineError('Silakan buat tanda tangan terlebih dahulu.');
+          return;
+        }
+
+        // Export signature canvas as data URL
+        const dataUrl = canvas.toDataURL('image/png');
+
+        btnSubmit.disabled = true;
+        btnSubmit.innerHTML = '<div class="spinner"></div> Menyimpan...';
+        hideInlineError();
+
+        try {
+          const payload = {
+            signatureUrl: dataUrl,
+            ...(isPengambilan ? { signerName: signerNameInput.value.trim() } : {})
+          };
+
+          const res = await fetch(`${apiBase}/signature-session/${sessionId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            btnSubmit.disabled = false;
+            btnSubmit.textContent = 'Kirim Tanda Tangan';
+            displayInlineError(data.message || 'Gagal menyimpan tanda tangan.');
+            return;
+          }
+
+          showStatus('success', 'Tanda Tangan Berhasil!', 'Tanda tangan telah dikirim ke perangkat utama. Anda dapat menutup halaman ini.');
+        } catch (err) {
+          btnSubmit.disabled = false;
+          btnSubmit.textContent = 'Kirim Tanda Tangan';
+          displayInlineError('Gagal mengirim tanda tangan. Periksa koneksi internet Anda.');
+        }
+      }
+
+      initSession();
+    })();
+  </script>
+</body>
+
+</html>

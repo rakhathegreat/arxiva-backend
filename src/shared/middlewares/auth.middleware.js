@@ -1,0 +1,39 @@
+ import { verifyToken } from '../jwt.js';
+import prisma from '../prisma.js';
+
+export const authMiddleware = async (req, res, next) => {
+    const token = req.headers.authorization || req.query.token;
+
+    if (!token) {
+        return res.status(401).json({ message: 'Unauthorized. No token provided.' });
+    }
+
+    const clearToken = token.replace('Bearer ', ''); // Remove 'Bearer ' prefix if present
+
+    try {
+        const decoded = verifyToken(clearToken);
+
+        const user = await prisma.user.findUnique({ 
+            where: { id: decoded.id },
+            include: { profile: true }
+        });
+
+        if (!user || !user.isAktif) {
+            return res.status(401).json({ message: 'Unauthorized. Invalid user.' });
+        }
+
+        req.user = user;
+        next();
+    } catch (error) {
+        return res.status(401).json({ message: error.message });
+    }
+};
+
+export const roleMiddleware = (roles) => {
+    return (req, res, next) => {
+        if (!req.user || !roles.includes(req.user.role)) {
+            return res.status(403).json({ message: 'Forbidden. Insufficient permissions.' });
+        }
+        next();
+    };
+};
