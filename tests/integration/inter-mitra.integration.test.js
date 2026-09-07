@@ -5,7 +5,7 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const { createRequest, updateRequestStatus, scanInterPartnerItems, getRequests } = await import('../../src/controllers/request.controller.js');
+const { createRequest, updateRequestStatus, scanInterPartnerItems, getRequests, downloadBastPdf } = await import('../../src/controllers/request.controller.js');
 
 const RUN = `IM${Date.now().toString(36).toUpperCase()}`;
 const SN = (n) => `SN-${RUN}-${n}`;
@@ -19,6 +19,34 @@ function mockRes() {
 	};
 	res.json = (body) => {
 		res.body = body;
+		return res;
+	};
+	return res;
+}
+
+function mockBastRes() {
+	const { Writable } = require('node:stream');
+	const chunks = [];
+	const res = new Writable({
+		write(chunk, enc, cb) {
+			chunks.push(chunk);
+			cb();
+		},
+	});
+	res.statusCode = null;
+	res.body = null;
+	res.headers = {};
+	res.chunks = chunks;
+	res.status = (code) => {
+		res.statusCode = code;
+		return res;
+	};
+	res.json = (body) => {
+		res.body = body;
+		return res;
+	};
+	res.setHeader = (key, value) => {
+		res.headers[key] = value;
 		return res;
 	};
 	return res;
@@ -325,5 +353,26 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 		const interList = interListRes.body;
 		expect(interList.some((r) => r.id === interRequest.id)).toBe(true);
 		expect(interList.some((r) => r.id === kpRequest.id)).toBe(false);
+
+		// List harus membawa requesterId agar klien bisa mendeteksi "saya peminta"
+		const interVisible = interList.find((r) => r.id === interRequest.id);
+		expect(interVisible.requesterId).toBe(requester.id);
+	}, 20000);
+
+	it('BAST antar mitra tersedia sejak DISETUJUI (downloadBastPdf)', async () => {
+		const request = await makeRequest();
+		expect((await approve(request)).body.request.status).toBe('DISETUJUI');
+
+		const res = mockBastRes();
+		await downloadBastPdf({ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } }, res);
+		// Gate status lintas (bukan 400/403) → draft BAST bisa diunduh saat DISETUJUI
+		expect(res.statusCode === null || [200].includes(res.statusCode)).toBe(true);
+	}, 20000);
+
+	it('BAST antar mitra belum tersedia saat MENUNGGU', async () => {
+		const request = await makeRequest();
+		const res = mockBastRes();
+		await downloadBastPdf({ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } }, res);
+		expect(res.statusCode).toBe(400);
 	}, 20000);
 });

@@ -59,6 +59,7 @@ export const getRequests = async (req, res) => {
         const formatted = requests.map(r => ({
             id: r.id,
             requestNumber: r.requestNumber,
+            requesterId: r.requesterId || null,
             requesterName: r.requester?.profile?.nama || r.requester?.username || "Unknown",
             partnerCategory: r.requester?.profile?.partnerType || "Mitra",
             destinationUserId: r.destinationUserId || null,
@@ -872,8 +873,8 @@ export const downloadBast = async (req, res) => {
         }
 
         // Hanya bisa generate BAST untuk status SIAP atau SELESAI
-        // (material rusak: DISETUJUI / SERAH / SELESAI)
-        if (request.type === 'RETURN_RUSAK') {
+        // (material rusak / antar mitra: DISETUJUI / SERAH / SELESAI)
+        if (request.type === 'RETURN_RUSAK' || request.type === 'INTER_MITRA') {
             if (!['DISETUJUI', 'SERAH', 'SELESAI'].includes(request.status)) {
                 return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus DISETUJUI, SERAH, atau SELESAI' });
             }
@@ -961,8 +962,8 @@ export const downloadBastPdf = async (req, res) => {
         }
 
         // Hanya bisa generate BAST untuk status SIAP atau SELESAI
-        // (material rusak: DISETUJUI / SERAH / SELESAI)
-        if (request.type === 'RETURN_RUSAK') {
+        // (material rusak / antar mitra: DISETUJUI / SERAH / SELESAI)
+        if (request.type === 'RETURN_RUSAK' || request.type === 'INTER_MITRA') {
             if (!['DISETUJUI', 'SERAH', 'SELESAI'].includes(request.status)) {
                 return res.status(400).json({ message: 'BAST hanya tersedia untuk request berstatus DISETUJUI, SERAH, atau SELESAI' });
             }
