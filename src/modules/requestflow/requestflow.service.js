@@ -267,16 +267,41 @@ export async function completeRequest(tx, request, actor) {
 	}
 
 	// Event: completion → notify requester (Opsi A)
-	await createNotification(
-		{
-			userId: request.requesterId,
-			title: 'Permintaan barang selesai',
-			message: `Permintaan ${request.requestNumber} telah selesai. Barang telah diterima di lokasi Anda.`,
-			type: 'REQUEST',
-			referenceId: request.id,
-		},
-		tx
-	);
+	if (request.type === 'INTER_MITRA') {
+		await createNotification(
+			{
+				userId: request.requesterId,
+				title: 'Serah terima antar mitra selesai',
+				message: `Permintaan antar mitra ${request.requestNumber} telah selesai. Barang telah diterima di lokasi Anda.`,
+				type: 'REQUEST',
+				referenceId: request.id,
+			},
+			tx
+		);
+		if (request.providerPartnerId) {
+			await createNotification(
+				{
+					userId: request.providerPartnerId,
+					title: 'Serah terima antar mitra selesai',
+					message: `Permintaan antar mitra ${request.requestNumber} telah selesai. Barang telah diserahkan ke mitra penerima.`,
+					type: 'REQUEST',
+					referenceId: request.id,
+				},
+				tx
+			);
+		}
+	} else {
+		await createNotification(
+			{
+				userId: request.requesterId,
+				title: 'Permintaan barang selesai',
+				message: `Permintaan ${request.requestNumber} telah selesai. Barang telah diterima di lokasi Anda.`,
+				type: 'REQUEST',
+				referenceId: request.id,
+			},
+			tx
+		);
+	}
 
 	return updatedReq;
 }

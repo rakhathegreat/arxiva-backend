@@ -68,3 +68,41 @@ describe('validateTransition — RETURN_RUSAK (pengajuan material rusak)', () =>
 		fail(validateTransition('MENUNGGU', 'SIAP', 'ADMIN', 'u1', 'a1', 'RETURN_RUSAK'), 400);
 	});
 });
+
+describe('validateTransition — INTER_MITRA (permintaan antar mitra)', () => {
+	// u1 = peminta, p1 = pemberi, a1 = admin
+	it('alur bahagia: MENUNGGU→DISETUJUI(admin)→SERAH(pemberi)→SELESAI(admin)', () => {
+		ok(validateTransition('MENUNGGU', 'DISETUJUI', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'));
+		ok(validateTransition('DISETUJUI', 'SERAH', 'MITRA', 'u1', 'p1', 'INTER_MITRA', 'p1'));
+		ok(validateTransition('SERAH', 'SELESAI', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'));
+	});
+
+	it('RBAC antar mitra: DISETUJUI/DITOLAK admin; SELESAI admin atau penerima', () => {
+		fail(validateTransition('MENUNGGU', 'DISETUJUI', 'MITRA', 'u1', 'u1', 'INTER_MITRA', 'p1'), 403);
+		fail(validateTransition('MENUNGGU', 'DITOLAK', 'MITRA', 'u1', 'u1', 'INTER_MITRA', 'p1'), 403);
+		fail(validateTransition('SERAH', 'SELESAI', 'MITRA', 'u1', 'p1', 'INTER_MITRA', 'p1'), 403);
+		ok(validateTransition('SERAH', 'SELESAI', 'MITRA', 'u1', 'u1', 'INTER_MITRA', 'p1'));
+	});
+
+	it('SERAH hanya pemberi (bukan sembarang mitra / bukan admin)', () => {
+		fail(validateTransition('DISETUJUI', 'SERAH', 'MITRA', 'u1', 'userLain', 'INTER_MITRA', 'p1'), 403);
+		ok(validateTransition('DISETUJUI', 'SERAH', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'));
+	});
+
+	it('DIBATALKAN: peminta boleh, pemberi tidak', () => {
+		ok(validateTransition('MENUNGGU', 'DIBATALKAN', 'MITRA', 'u1', 'u1', 'INTER_MITRA', 'p1'));
+		fail(validateTransition('MENUNGGU', 'DIBATALKAN', 'MITRA', 'u1', 'p1', 'INTER_MITRA', 'p1'), 403);
+		ok(validateTransition('DISETUJUI', 'DIBATALKAN', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'));
+	});
+
+	it('transisi liar antar mitra ditolak', () => {
+		fail(validateTransition('MENUNGGU', 'SERAH', 'MITRA', 'u1', 'p1', 'INTER_MITRA', 'p1'), 400);
+		fail(validateTransition('MENUNGGU', 'SELESAI', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'), 400);
+		fail(validateTransition('DISETUJUI', 'SELESAI', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'), 400);
+		fail(validateTransition('MENUNGGU', 'SIAP', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'), 400);
+	});
+
+	it('status tak dikenal → 400 pada tipe antar mitra', () => {
+		fail(validateTransition('MENUNGGU', 'HILANG', 'ADMIN', 'u1', 'a1', 'INTER_MITRA', 'p1'), 400);
+	});
+});

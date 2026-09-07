@@ -1,5 +1,5 @@
 import express from 'express';
-import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, downloadBastDraftPdf, downloadBastSignedPdf, signBast } from '../controllers/request.controller.js';
+import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, downloadBastDraftPdf, downloadBastSignedPdf, signBast, scanInterPartnerItems } from '../controllers/request.controller.js';
 import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -158,5 +158,53 @@ router.get('/:id/pdf-signed', downloadBastSignedPdf);
  *     description: Sign the BAST document by adding the current user's profile signature
  */
 router.post('/:id/sign-bast', signBast);
+
+/**
+ * @swagger
+ * /peminjaman-mitra/{id}/scan:
+ *   put:
+ *     tags: [Requests]
+ *     summary: Scan serah terima antar mitra (provider/receiver)
+ *     description: |
+ *       Provider scan: item yang diserahkan mitra pemberi (DISETUJUI → SERAH,
+ *       membuat RequestAllocation). Receiver scan: konfirmasi barang diterima
+ *       (SERAH → SELESAI, transfer ke lokasi mitra peminta).
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [scanParty, items]
+ *             properties:
+ *               scanParty:
+ *                 type: string
+ *                 enum: [provider, receiver]
+ *               items:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     requestItemId:
+ *                       type: string
+ *                     serialNumbers:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *     responses:
+ *       200:
+ *         description: Scan berhasil
+ *       400:
+ *         description: Validasi gagal (SN tidak cocok, kuantitas tidak sama)
+ *       403:
+ *         description: Bukan mitra pemberi/penerima yang ditunjuk
+ */
+router.put('/peminjaman-mitra/:id/scan', scanInterPartnerItems);
 
 export default router;

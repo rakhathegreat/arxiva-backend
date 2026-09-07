@@ -83,6 +83,7 @@ enum RequestStatus {
 enum RequestType {
   OUTGOING /// Default: partner requests material FROM KP
   RETURN_RUSAK /// Partner returns damaged material TO KP
+  INTER_MITRA /// Peer transfer: mate requests material FROM another mitra
 }
 
 /// Status for a signature session captured via mobile QR
@@ -116,6 +117,7 @@ model User {
 
   requests           Request[]           @relation("Requester")
   destinedRequests   Request[]           @relation("Destination")
+  providedRequests   Request[]           @relation("Provider")
   allocatedRequests  RequestAllocation[] @relation("Allocator")
   generatedDocuments DeliveryDocument[]  @relation("GeneratedDocument")
 
@@ -378,6 +380,9 @@ model Request {
   destinationUserId String?
   destinationUser   User?  @relation("Destination", fields: [destinationUserId], references: [id])
 
+  providerPartnerId String?
+  providerPartner   User?  @relation("Provider", fields: [providerPartnerId], references: [id])
+
   status RequestStatus @default(MENUNGGU)
 
   type RequestType @default(OUTGOING)
@@ -408,6 +413,7 @@ model Request {
   @@index([requesterId])
   @@index([status])
   @@index([destinationUserId])
+  @@index([providerPartnerId])
 }
 
 /// Specific requested quantity of a category/brand within a Request.
@@ -431,6 +437,11 @@ model RequestItem {
   fulfilledQuantity Int @default(0) /// Tracks how many items have been allocated
 
   serialNumber String? /// Specific SN returned (RETURN_RUSAK); null = consumable/generic
+
+  donorSerialNumbers String? /// Comma-joined SNs scanned by provider (INTER_MITRA)
+  receiverSerialNumbers String? /// Comma-joined SNs scanned by receiver (INTER_MITRA)
+  donorScannedAt DateTime?
+  receiverScannedAt DateTime?
 
   allocations RequestAllocation[]
 

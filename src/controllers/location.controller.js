@@ -328,6 +328,24 @@ export const deleteLocation = async (req, res) => {
             return res.status(404).json({ message: 'Location not found' });
         }
 
+        let totalItems = await prisma.item.count({ where: { locationId: id } });
+        if (existing.type === 'RACK') {
+            const children = await prisma.location.findMany({
+                where: { parentId: id },
+                select: { id: true },
+            });
+            if (children.length > 0) {
+                totalItems += await prisma.item.count({
+                    where: { locationId: { in: children.map(c => c.id) } },
+                });
+            }
+        }
+        if (totalItems > 0) {
+            return res.status(409).json({
+                message: `Masih ada ${totalItems} barang di lokasi ini. Pindahkan atau hapus barang terlebih dahulu.`,
+            });
+        }
+
         if (existing.sheetId) {
             await deleteSheet(existing.sheetId);
         }

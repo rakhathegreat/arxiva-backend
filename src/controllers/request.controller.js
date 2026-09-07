@@ -19,10 +19,24 @@ const __dirname = path.dirname(__filename);
 // GET /requests
 export const getRequests = async (req, res) => {
     try {
+        const { type } = req.query || {};
+        const where = {};
+        if (type === 'inter-partner' || type === 'inter_mitra' || type === 'INTER_MITRA') {
+            where.type = 'INTER_MITRA';
+        } else if (type && type.toUpperCase() !== 'ALL') {
+            where.type = type.toUpperCase();
+        } else {
+            // Default (tanpa type / type=all) = permintaan ke admin/KP;
+            // permintaan antar mitra dipisah dan hanya muncul lewat type=inter-partner.
+            where.type = { not: 'INTER_MITRA' };
+        }
+
         const requests = await prisma.request.findMany({
+            where,
             include: {
                 requester: { include: { profile: true } },
                 destinationUser: { include: { profile: true } },
+                providerPartner: { include: { profile: true } },
                 requestItems: {
                     include: {
                         materialCategory: true,
@@ -52,6 +66,11 @@ export const getRequests = async (req, res) => {
                 ? (r.destinationUser.profile?.nama || r.destinationUser.username)
                 : null,
             destination: r.destinationUser || null,
+            providerPartnerId: r.providerPartnerId || null,
+            providerName: r.providerPartner
+                ? (r.providerPartner.profile?.nama || r.providerPartner.username)
+                : null,
+            providerPartner: r.providerPartner || null,
             status: r.status,
             type: r.type,
             notes: r.notes || "-",
@@ -70,7 +89,9 @@ export const getRequests = async (req, res) => {
                 brand: item.brand?.nama || "-",
                 model: item.model?.nama || "-",
                 quantity: item.quantity,
-                serialNumber: item.serialNumber || null
+                serialNumber: item.serialNumber || null,
+                donorSerialNumbers: item.donorSerialNumbers || null,
+                receiverSerialNumbers: item.receiverSerialNumbers || null
             })),
             deliveryDocument: r.deliveryDocument ? {
                 kpSignedById: r.deliveryDocument.kpSignedById,
@@ -130,8 +151,11 @@ export const getRequestById = async (req, res) => {
 // POST /requests
 export const createRequest = async (req, res) => {
     try {
-        const { requesterId, notes, items, destinationUserId, type } = req.body;
-        const requestType = type === 'RETURN_RUSAK' ? 'RETURN_RUSAK' : 'OUTGOING';
+        const { requesterId, notes, items, destinationUserId, type, providerPartnerId, isInterPartner } = req.body;
+        const isInterMitra = isInterPartner === true || Boolean(providerPartnerId);
+        const requestType = isInterMitra
+            ? 'INTER_MITRA'
+            : type === 'RETURN_RUSAK' ? 'RETURN_RUSAK' : 'OUTGOING';
 
         // Tujuan request (opsional) = mitra lain yang akan menerima barang pinjaman.
         // Hanya boleh menunjuk mitra aktif yang ada, dan bukan dirinya sendiri.
@@ -148,6 +172,20 @@ export const createRequest = async (req, res) => {
             }
         }
 
+        // INTER_MITRA: mitra pemberi wajib, aktif, dan bukan pemohon sendiri.
+        if (requestType === 'INTER_MITRA') {
+            if (!providerPartnerId || providerPartnerId === requesterId) {
+                return res.status(400).json({ message: 'Mitra pemberi (provider) wajib diisi dan tidak boleh sama dengan pemohon' });
+            }
+            const provider = await prisma.user.findUnique({
+                where: { id: providerPartnerId },
+                select: { id: true, role: true, isAktif: true }
+            });
+            if (!provider || provider.role !== 'MITRA' || !provider.isAktif) {
+                return res.status(400).json({ message: 'Mitra pemberi harus merupakan mitra yang aktif' });
+            }
+        }
+
         const requestCount = await prisma.request.count();
         const requestNumber = `REQ-${new Date().getFullYear()}-${String(requestCount + 1).padStart(4, '0')}`;
 
@@ -157,6 +195,7 @@ export const createRequest = async (req, res) => {
                 type: requestType,
                 requesterId,
                 destinationUserId: destinationUserId || null,
+                providerPartnerId: requestType === 'INTER_MITRA' ? providerPartnerId : null,
                 notes,
                 requestItems: {
                     create: items.map(item => ({
@@ -171,9 +210,23 @@ export const createRequest = async (req, res) => {
             include: {
                 requester: { include: { profile: true } },
                 destinationUser: { include: { profile: true } },
+                providerPartner: { include: { profile: true } },
                 requestItems: { include: { materialCategory: true, brand: true, model: true } }
             }
         });
+
+        if (requestType === 'INTER_MITRA') {
+            await createNotification(
+                {
+                    userId: providerPartnerId,
+                    title: 'Permintaan material antar mitra',
+                    message: `${requestNumber}: ${newRequest.requester?.profile?.nama || 'Mitra'} meminta material dari mitra Anda dan menunggu persetujuan admin.`,
+                    type: 'REQUEST',
+                    referenceId: newRequest.id,
+                }
+            );
+        }
+
         res.status(201).json({ message: 'Request created successfully', request: newRequest });
     } catch (error) {
         console.error('Error in createRequest:', error);
@@ -347,11 +400,17 @@ async function regenerateDraftBast(requestId, user) {
 }
 
 /**
- * Hasilkan BAST untuk pengajuan material rusak (RETURN_RUSAK) saat admin
- * menyetujui (DISETUJUI). Item diambil dari requestItems (bukan alokasi),
- * karena pengembalian rusak tidak melalui alokasi keluar.
+ * Hasilkan BAST draft saat admin menyetujui (DISETUJUI) pengajuan material rusak
+ * (RETURN_RUSAK) atau permintaan antar mitra (INTER_MITRA). Item diambil dari
+ * requestItems (bukan alokasi), karena pengembalian rusak / antar mitra tidak
+ * melalui alokasi keluar admin.
+ * @param {string} requestId
+ * @param {object} user
+ * @param {'RETURN_RUSAK'|'INTER_MITRA'} flow
  */
-async function regenerateReturnRusakBast(requestId, user) {
+async function regenerateApprovalDraftBast(requestId, user, flow) {
+    const isReturnRusak = flow === 'RETURN_RUSAK';
+    const isInterMitra = flow === 'INTER_MITRA';
     const { name: adminName, signatureUrl: adminSigUrl } = await resolveAdminIdentity({
         actingAdmin: user,
     });
@@ -360,6 +419,7 @@ async function regenerateReturnRusakBast(requestId, user) {
         where: { id: requestId },
         include: {
             requester: { include: { profile: true } },
+            providerPartner: { include: { profile: true } },
             requestItems: {
                 include: {
                     materialCategory: true,
@@ -379,7 +439,7 @@ async function regenerateReturnRusakBast(requestId, user) {
             serialNumber: ri.serialNumber || '-',
             quantity: ri.quantity,
             unit: 'Unit',
-            kondisi: 'Rusak',
+            kondisi: isReturnRusak ? 'Rusak' : 'Baik',
         };
     });
 
@@ -400,10 +460,16 @@ async function regenerateReturnRusakBast(requestId, user) {
         picSignatureUrl: null, // Unsigned sampai penyerahan (SERAH)
         generatedByName: adminName,
         kpSignatureUrl: adminSigUrl,
-        allocations: itemsSnapshotData
+        allocations: itemsSnapshotData,
+        // INTER_MITRA: mitra pemberi ikut dicantumkan sebagai konteks transaksi
+        providerName: isInterMitra
+            ? (reqFull.providerPartner?.profile?.nama || reqFull.providerPartner?.username || null)
+            : null,
     };
 
-    const draftFilename = `bast-rusak-${reqFull.requestNumber}.pdf`;
+    const draftFilename = isReturnRusak
+        ? `bast-rusak-${reqFull.requestNumber}.pdf`
+        : `bast-mitra-${reqFull.requestNumber}.pdf`;
     const { relativeFilePath } = await generateAndSaveBastPdf(returnBastData, draftFilename);
 
     await prisma.deliveryDocument.upsert({
@@ -454,12 +520,21 @@ export const updateRequestStatus = async (req, res) => {
         }
 
         // RBAC + urutan transisi — satu aturan di modul requestflow
-        const transition = validateTransition(request.status, status, user.role, request.requesterId, user.id, request.type);
+        const transition = validateTransition(
+            request.status,
+            status,
+            user.role,
+            request.requesterId,
+            user.id,
+            request.type,
+            request.providerPartnerId
+        );
         if (!transition.ok) {
             return res.status(transition.httpStatus).json({ message: transition.message });
         }
 
         const isReturnRusak = request.type === 'RETURN_RUSAK';
+        const isInterMitra = request.type === 'INTER_MITRA';
 
         const dataToUpdate = { status };
         const now = new Date();
@@ -470,21 +545,21 @@ export const updateRequestStatus = async (req, res) => {
             dataToUpdate.approvedAt = now;
             dataToUpdate.processedAt = now;
         }
-        if (isReturnRusak && status === 'DISETUJUI') {
+        if ((isReturnRusak || isInterMitra) && status === 'DISETUJUI') {
             dataToUpdate.approvedAt = now;
             dataToUpdate.processedAt = now;
         }
-        if (isReturnRusak && status === 'SERAH') {
+        if ((isReturnRusak || isInterMitra) && status === 'SERAH') {
             dataToUpdate.shippedAt = now;
         }
         if (status === 'SELESAI') dataToUpdate.completedAt = now;
 
         // Auto-generate / perbarui BAST Draft saat status menjadi SIAP (keluar)
-        // atau DISETUJUI (pengajuan material rusak)
+        // atau DISETUJUI (pengajuan material rusak / permintaan antar mitra)
         if (status === 'SIAP') {
             await regenerateDraftBast(id, user);
-        } else if (isReturnRusak && status === 'DISETUJUI') {
-            await regenerateReturnRusakBast(id, user);
+        } else if (status === 'DISETUJUI' && (isReturnRusak || isInterMitra)) {
+            await regenerateApprovalDraftBast(id, user, isInterMitra ? 'INTER_MITRA' : 'RETURN_RUSAK');
         }
 
         if (status === 'SELESAI') {
@@ -534,6 +609,219 @@ export const updateRequestStatus = async (req, res) => {
             return res.status(409).json({ message: error.message, reason: error.code });
         }
         res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || "Internal server error" });
+    }
+};
+
+// PUT /peminjaman-mitra/:id/scan
+// Alur antar mitra dua tahap:
+//   scanParty="provider" → simpan donorSerialNumbers, buat RequestAllocation,
+//                          status DISETUJUI → SERAH
+//   scanParty="receiver" → verifikasi SN yang diterima cocok dengan donor,
+//                          status SERAH → SELESAI (transfer via completeRequest)
+export const scanInterPartnerItems = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { scanParty, items } = req.body;
+        const user = req.user;
+
+        if (!['provider', 'receiver'].includes(scanParty)) {
+            return res.status(400).json({ message: 'scanParty harus "provider" atau "receiver"' });
+        }
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ message: 'Daftar item hasil scan wajib diisi' });
+        }
+
+        const request = await prisma.request.findUnique({
+            where: { id },
+            include: {
+                requester: { include: { profile: true } },
+                providerPartner: { include: { profile: true } },
+                requestItems: { include: { allocations: true } },
+            },
+        });
+
+        if (!request) return res.status(404).json({ message: 'Request tidak ditemukan' });
+        if (request.type !== 'INTER_MITRA') {
+            return res.status(400).json({ message: 'Endpoint scan hanya untuk permintaan antar mitra' });
+        }
+
+        const normalize = (s) => String(s || '').trim().toUpperCase();
+        const now = new Date();
+        const isProviderScan = scanParty === 'provider';
+
+        // RBAC + transisi: provider scan = DISETUJUI→SERAH; receiver scan = SERAH→SELESAI
+        const targetStatus = isProviderScan ? 'SERAH' : 'SELESAI';
+        const transition = validateTransition(
+            request.status,
+            targetStatus,
+            user.role,
+            request.requesterId,
+            user.id,
+            request.type,
+            request.providerPartnerId
+        );
+        if (!transition.ok) {
+            return res.status(transition.httpStatus).json({ message: transition.message });
+        }
+
+        if (isProviderScan) {
+            // Lokasi mitra pemberi — sumber barang yang diserahkan
+            const providerLoc = await prisma.userLocation.findFirst({
+                where: { userId: request.providerPartnerId },
+                include: { location: true },
+            });
+            if (!providerLoc) {
+                return res.status(400).json({ message: 'Mitra pemberi belum memiliki lokasi penyimpanan' });
+            }
+            const providerLocationId = providerLoc.locationId;
+
+            await prisma.$transaction(async (tx) => {
+                const riById = new Map(request.requestItems.map((ri) => [ri.id, ri]));
+
+                for (const scan of items) {
+                    const requestItemId = scan.requestItemId || scan.id;
+                    const ri = riById.get(requestItemId);
+                    if (!ri) {
+                        throw Object.assign(new Error(`Detail barang ${requestItemId} bukan bagian dari request ini`), { code: 'SCAN_MISMATCH' });
+                    }
+
+                    const rawSns = Array.isArray(scan.serialNumbers)
+                        ? scan.serialNumbers
+                        : String(scan.donorSerialNumber || scan.receiverSerialNumber || '').split(',').filter(Boolean);
+                    const sns = rawSns.map(normalize).filter(Boolean);
+
+                    if (sns.length !== ri.quantity) {
+                        throw Object.assign(
+                            new Error(`Jumlah SN hasil scan (${sns.length}) tidak sama dengan kuantitas permintaan (${ri.quantity}) untuk ${ri.materialCategory?.nama || ri.id}`),
+                            { code: 'SCAN_MISMATCH' }
+                        );
+                    }
+
+                    const foundItems = await tx.item.findMany({
+                        where: { serialNumber: { in: sns } },
+                        include: { model: true },
+                    });
+                    if (foundItems.length !== sns.length) {
+                        const missing = sns.filter((sn) => !foundItems.some((it) => normalize(it.serialNumber) === sn));
+                        throw Object.assign(new Error(`Barang dengan SN ${missing.join(', ')} tidak ditemukan`), { code: 'SCAN_MISMATCH' });
+                    }
+
+                    for (const item of foundItems) {
+                        if (item.model?.materialCategoryId !== ri.materialCategoryId) {
+                            throw Object.assign(new Error(`SN ${item.serialNumber} bukan kategori barang yang diminta`), { code: 'SCAN_MISMATCH' });
+                        }
+                        if (item.locationId !== providerLocationId) {
+                            throw Object.assign(new Error(`SN ${item.serialNumber} tidak berada di lokasi mitra pemberi`), { code: 'SCAN_MISMATCH' });
+                        }
+                    }
+
+                    const foundIds = new Set(foundItems.map((it) => it.id));
+                    const doubleBooked = await tx.requestAllocation.findFirst({
+                        where: { itemId: { in: [...foundIds] }, requestItem: { requestId: { not: request.id } } },
+                        include: { requestItem: true },
+                    });
+                    if (doubleBooked) {
+                        throw Object.assign(new Error('Salah satu barang sudah dialokasikan ke request lain'), { code: 'SCAN_MISMATCH' });
+                    }
+
+                    await tx.requestAllocation.deleteMany({ where: { requestItemId: ri.id } });
+                    await tx.requestAllocation.createMany({
+                        data: foundItems.map((item) => ({
+                            requestItemId: ri.id,
+                            itemId: item.id,
+                            allocatedById: user.id,
+                        })),
+                    });
+
+                    await tx.requestItem.update({
+                        where: { id: ri.id },
+                        data: {
+                            donorSerialNumbers: sns.join(','),
+                            donorScannedAt: now,
+                            fulfilledQuantity: sns.length,
+                        },
+                    });
+                }
+
+                await tx.request.update({
+                    where: { id: request.id },
+                    data: { status: 'SERAH', shippedAt: now },
+                });
+            });
+
+            await createNotification({
+                userId: request.requesterId,
+                title: 'Barang diserahkan mitra pemberi',
+                message: `Permintaan ${request.requestNumber} telah diserahkan oleh ${
+                    request.providerPartner?.profile?.nama || 'mitra pemberi'
+                }. Silakan verifikasi dan scan barang yang diterima.`,
+                type: 'REQUEST',
+                referenceId: request.id,
+            });
+
+            return res.json({ message: 'Scan mitra pemberi berhasil, barang siap diserahkan', request });
+        }
+
+        // — Receiver scan (SELESAI) —
+        const updated = await prisma.$transaction(async (tx) => {
+            const riById = new Map(request.requestItems.map((ri) => [ri.id, ri]));
+
+            for (const scan of items) {
+                const requestItemId = scan.requestItemId || scan.id;
+                const ri = riById.get(requestItemId);
+                if (!ri) {
+                    throw Object.assign(new Error(`Detail barang ${requestItemId} bukan bagian dari request ini`), { code: 'SCAN_MISMATCH' });
+                }
+                if (!ri.donorSerialNumbers) {
+                    throw Object.assign(new Error(`Barang ${ri.materialCategory?.nama || ri.id} belum di-scan oleh mitra pemberi`), { code: 'SCAN_MISMATCH' });
+                }
+
+                const rawSns = Array.isArray(scan.serialNumbers)
+                    ? scan.serialNumbers
+                    : String(scan.receiverSerialNumber || scan.donorSerialNumber || '').split(',').filter(Boolean);
+                const receivedSns = rawSns.map(normalize).filter(Boolean);
+                const donorSns = ri.donorSerialNumbers.split(',').map(normalize).filter(Boolean);
+
+                const donorSet = new Set(donorSns);
+                const mismatch = receivedSns.filter((sn) => !donorSet.has(sn));
+                const missing = donorSns.filter((sn) => !receivedSns.includes(sn));
+                if (mismatch.length > 0 || missing.length > 0) {
+                    throw Object.assign(
+                        new Error(`Barang yang diterima tidak cocok dengan serah dari pemberi (Lain: ${mismatch.join(', ') || '-'}, Kurang: ${missing.join(', ') || '-'})`),
+                        { code: 'SCAN_MISMATCH' }
+                    );
+                }
+
+                await tx.requestItem.update({
+                    where: { id: ri.id },
+                    data: {
+                        receiverSerialNumbers: receivedSns.join(','),
+                        receiverScannedAt: now,
+                    },
+                });
+            }
+
+            // Transfer + finalisasi SELESAI — satu jalur completion requestflow
+            return completeRequest(tx, request, user);
+        });
+
+        await createNotification({
+            userId: request.providerPartnerId,
+            title: 'Serah terima antar mitra selesai',
+            message: `Serah terima ${request.requestNumber} telah dikonfirmasi selesai oleh ${
+                request.requester?.profile?.nama || 'mitra penerima'
+            }. Barang kini menjadi milik mitra peminta.`,
+            type: 'REQUEST',
+            referenceId: request.id,
+        });
+
+        return res.json({ message: 'Scan mitra penerima berhasil, serah terima selesai', request: updated });
+    } catch (error) {
+        console.error('Error in scanInterPartnerItems:', error);
+        if (error.code === 'SCAN_MISMATCH' || error.code === 'P2002') {
+            return res.status(400).json({ message: error.message });
+        }
+        res.status(error.code === "CAPACITY_FULL" ? 409 : 500).json({ message: error.message || 'Internal server error' });
     }
 };
 
