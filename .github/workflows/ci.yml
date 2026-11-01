@@ -1,0 +1,100 @@
+name: CI
+
+# Dijalankan untuk setiap PR/push, dan dipakai ulang oleh deploy.yml
+# (reusable workflow) supaya deploy tidak pernah melewati gate kualitas.
+on:
+  push:
+    # main sengaja tidak didaftarkan: push ke main ditangani deploy.yml yang
+    # memanggil workflow ini, sehingga CI tidak berjalan dua kali.
+    branches: [development]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # samakan dengan image runtime (node:22-alpine)
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run format:check
+
+  test:
+    name: unit + integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: arxiva_test
+          MARIADB_USER: admin
+          MARIADB_PASSWORD: arxiva123
+        ports:
+          - 3306:3306
+        # Service baru dianggap siap setelah healthcheck lulus; tanpa opsi ini
+        # langkah migrasi bisa kena "connection refused".
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      NODE_ENV: test
+      # Dipakai `prisma migrate deploy`; tes integrasi memakai TEST_DATABASE_URL
+      # (lihat src/shared/prisma.js — PRISMA_DATASOURCE_URL menimpa DATABASE_URL).
+      DATABASE_URL: mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test
+      TEST_DATABASE_URL: mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test
+      JWT_SECRET: ci-test-secret-not-for-production
+      RATE_LIMIT_DISABLED: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        # fileParallelism dimatikan di vitest.config.mjs: tes integrasi berbagi
+        # satu MariaDB dan paralel antar-file memicu deadlock row lock.
+        run: npx prisma migrate deploy
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration

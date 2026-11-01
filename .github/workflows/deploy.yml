@@ -2,19 +2,44 @@ name: Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  # Bisa dijalankan manual untuk re-deploy (mis. setelah mengganti secret).
+  workflow_dispatch:
 
 permissions:
   contents: read
-  packages: write
+
+# Deploy tidak boleh paralel: dua deploy bertumpuk bisa mencampur image,
+# migrasi, dan container.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SERVER_DIR: /home/taslim/arxiva-backend
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
+  # Gate kualitas: build & deploy hanya jalan kalau lint + semua tes lulus.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   deploy:
+    name: build & deploy
+    needs: ci
     runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: production
+      url: https://api-taslim.duckdns.org/health
+    permissions:
+      contents: read
+      packages: write
 
     steps:
       - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
         with:
@@ -22,30 +47,110 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # metadata-action menormalkan nama repo ke huruf kecil; GHCR menolak
+          # nama image yang mengandung huruf besar.
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
 
-      - uses: docker/build-push-action@v6
+      - name: Build & push image
+        uses: docker/build-push-action@v6
         with:
           context: .
+          platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - uses: appleboy/ssh-action@v1
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          ENV_FILE_B64: ${{ secrets.ENV_FILE_B64 }}
+          # Tag immutable yang dipakai compose; `latest` tetap didorong untuk
+          # kompatibilitas, tapi deploy tidak bergantung padanya.
+          IMAGE_TAG: sha-${{ github.sha }}
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_KEY }}
+          # Opsional tapi disarankan: isi dengan output
+          # `ssh-keyscan -t ed25519 <host>` supaya host tidak bisa di-MITM.
+          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          # env dikirim sebagai environment variable, BUKAN diinterpolasi ke
+          # dalam teks skrip — rahasia berisi $, `, atau "EOF" tidak merusak .env.
+          envs: GHCR_USER,GHCR_TOKEN,ENV_FILE_B64,IMAGE_TAG
+          script_stop: true
+          command_timeout: 10m
           script: |
-            cd /home/taslim/arxiva-backend
+            set -euo pipefail
+            cd "${{ env.SERVER_DIR }}"
 
-            cat > .env <<EOF
-            ${{ secrets.ENV_FILE }}
-            EOF
+            if [ -z "${ENV_FILE_B64:-}" ]; then
+              echo "ENV_FILE_B64 kosong" >&2
+              exit 1
+            fi
 
-            docker compose pull
+            # Simpan .env lama untuk rollback cepat.
+            if [ -f .env ]; then cp -p .env .env.bak; fi
+            umask 077
+            printf '%s' "$ENV_FILE_B64" | base64 -d > .env
 
-            docker compose run --rm backend npx prisma migrate deploy
+            # Paket GHCR privat: server butuh kredensial untuk pull.
+            if [ -n "${GHCR_TOKEN:-}" ]; then
+              printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            fi
 
-            docker compose up -d --remove-orphans
+            docker compose config -q
 
-            docker image prune -f
+            # Pull hanya image backend; image lain memakai tag floating dan
+            # tidak boleh ikut ter-upgrade diam-diam saat deploy.
+            docker compose pull backend
+
+            # Pastikan DB siap sebelum backup + migrasi (deploy pertama /
+            # setelah reboot server).
+            docker compose up -d mariadb
+            for i in $(seq 1 30); do
+              if docker compose exec -T mariadb \
+                sh -c 'exec mariadb-admin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+                break
+              fi
+              if [ "$i" -eq 30 ]; then echo "MariaDB tidak siap" >&2; exit 1; fi
+              sleep 2
+            done
+
+            # Backup sebelum prisma migrate deploy.
+            mkdir -p backups
+            docker compose exec -T mariadb \
+              sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events arxiva' \
+              > "backups/arxiva-$(date +%Y%m%d-%H%M%S).sql"
+            find backups -name 'arxiva-*.sql' -type f -mtime +7 -delete
+
+            # Migrasi dijalankan di container sekali-pakai, bukan saat start
+            # container produksi (Dockerfile CMD hanya `npm start`).
+            docker compose run --rm --no-deps backend npx prisma migrate deploy
+
+            docker compose up -d --remove-orphans --wait --wait-timeout 180
+
+            # Verifikasi pasca-deploy. Kalau gagal: job merah, .env.bak tersedia.
+            for i in $(seq 1 10); do
+              if docker compose exec -T backend node -e \
+                "fetch('http://localhost:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+                echo "health check OK"
+                break
+              fi
+              if [ "$i" -eq 10 ]; then echo "health check gagal" >&2; exit 1; fi
+              sleep 5
+            done
+
+            # Bersihkan image lama (termasuk tag sha-* yang tak terpakai);
+            # image yang sedang dipakai container tidak ikut terhapus.
+            docker image prune -af --filter "until=336h"
