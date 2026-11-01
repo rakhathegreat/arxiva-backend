@@ -5,13 +5,15 @@ Pipeline: `.github/workflows/deploy.yml` (push ke `main` atau `workflow_dispatch
 ```
 ci (lint + unit + integration)  →  build & push image :sha-<commit> + :latest
                                      →  SSH ke server:
-                                        1. tulis .env dari secret ENV_FILE_B64
-                                        2. pull image (tag = sha-<commit>)
-                                        3. tunggu MariaDB siap
-                                        4. backup DB ke backups/
-                                        5. prisma migrate deploy
-                                        6. docker compose up -d --wait
-                                        7. cek /health, gagal = job merah
+                                        0. siapkan direktori + cek docker
+                                        1. salin docker-compose.yml + Caddyfile
+                                        2. tulis .env dari secret ENV_FILE_B64
+                                        3. pull image (tag = sha-<commit>)
+                                        4. tunggu MariaDB siap
+                                        5. backup DB ke backups/
+                                        6. prisma migrate deploy
+                                        7. docker compose up -d --wait
+                                        8. cek /health, gagal = job merah
 ```
 
 Deploy berhenti di langkah mana pun yang gagal (`set -euo pipefail` +
@@ -44,18 +46,32 @@ otomatis, tapi tanpa reviewer sampai dikonfigurasi.
 
 ## Prasyarat server
 
-- Docker Compose **>= 2.20** (`--wait`, `--wait-timeout`): `docker compose version`.
+- Docker Engine + Docker Compose **>= 2.20** (`--wait`, `--wait-timeout`):
+  `docker compose version`. Pipeline memeriksa ini dan berhenti dengan pesan
+  jelas kalau belum ada.
 - `.env` produksi memuat `MYSQL_ROOT_PASSWORD`, `MYSQL_PASSWORD`,
   `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` — compose menolak start kalau kosong.
-- Direktori `/home/taslim/arxiva-backend` (lihat `SERVER_DIR` di workflow)
-  writable oleh user deploy, karena pipeline menulis `.env`, `backups/`.
+  Kalau `MYSQL_DATABASE` tidak diisi, nilainya default `arxiva` (dipakai juga
+  oleh langkah backup).
+- Direktori `/home/taslim/deploy` (lihat `SERVER_DIR` di workflow). Pipeline
+  membuatnya sendiri (`mkdir -p`) dan user deploy harus bisa menulis ke sana,
+  karena pipeline menulis `.env` dan `backups/`.
+
+Yang **tidak** perlu disiapkan manual di server: `docker-compose.yml` dan
+`Caddyfile` disalin dari repo setiap deploy (langkah "Sync stack config").
+Jadi perubahan compose/Caddy ikut ter-deploy, dan server baru cukup punya
+Docker + user SSH.
+
+> Catatan: file di server yang tidak ada di repo (mis. `.env`, `backups/`)
+> tidak tersentuh. Tapi perubahan manual pada `docker-compose.yml`/`Caddyfile`
+> di server akan **tertimpa** — ubah di repo, bukan langsung di server.
 
 ## Rollback
 
 Image sekarang di-tag `sha-<commit>` (immutable):
 
 ```bash
-cd /home/taslim/arxiva-backend
+cd /home/taslim/deploy
 IMAGE_TAG=sha-<commit-lama> docker compose pull backend
 IMAGE_TAG=sha-<commit-lama> docker compose up -d --force-recreate backend
 ```
@@ -151,7 +167,7 @@ Terverifikasi end-to-end terhadap kode aplikasi: `HeadBucket`, `CreateBucket`,
 di production (`STORAGE_ACCESS_KEY & STORAGE_SECRET_KEY wajib diset`).
 
 ```bash
-cd /home/taslim/arxiva-backend
+cd /home/taslim/deploy
 sed -i \
   -e 's/^MINIO_ENDPOINT=/STORAGE_ENDPOINT=/' \
   -e 's/^MINIO_PORT=/STORAGE_PORT=/' \
