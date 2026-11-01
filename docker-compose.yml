@@ -1,83 +1,131 @@
+# Catatan operasional:
+# - Kredensial TIDAK ditulis di file ini; semuanya dibaca dari .env
+#   (lihat .env.example). Compose otomatis memuat .env di direktori yang sama.
+# - Rollback: `IMAGE_TAG=sha-<git-sha> docker compose up -d --force-recreate backend`
+# - Port DB & konsol object storage hanya di-bind ke loopback; akses via SSH tunnel.
+
 services:
   caddy:
-    image: caddy:latest
+    image: caddy:2.11.7-alpine
     container_name: caddy
     restart: unless-stopped
+    depends_on:
+      - backend
     ports:
-      - "80:80"
-      - "443:443"
+      - '80:80'
+      - '443:443'
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
       - app-network
+    logging: &default-logging
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
 
   mariadb:
-    image: mariadb:11
+    # Pin ke versi patch: `mariadb:11` bisa berubah diam-diam dan memicu
+    # upgrade data dir yang tidak direncanakan. Cek versi berjalan dengan
+    # `docker compose exec mariadb mariadb -V` sebelum menaikkan pin ini.
+    image: mariadb:11.8.9
     container_name: mariadb
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: "Rotio_lempuyangan2026"
-      MYSQL_DATABASE: "arxiva"
-      MYSQL_USER: "admin"
-      MYSQL_PASSWORD: "arxiva123"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD wajib diisi di .env}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-arxiva}
+      MYSQL_USER: ${MYSQL_USER:-admin}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD wajib diisi di .env}
     volumes:
       - mariadb_data:/var/lib/mysql
     ports:
-      - "3306:3306"
+      - '127.0.0.1:3306:3306'
+    healthcheck:
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     networks:
       - app-network
+    logging: *default-logging
 
   backend:
-    image: ghcr.io/rakhathegreat/arxiva-backend:latest
+    image: ghcr.io/rakhathegreat/arxiva-backend:${IMAGE_TAG:-latest}
     env_file:
       - .env
     container_name: backend
     restart: unless-stopped
     depends_on:
-      - mariadb
+      mariadb:
+        # Jangan start backend sebelum DB benar-benar menerima koneksi.
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
     environment:
-      DATABASE_URL: "mysql://admin:arxiva123@mariadb:3306/arxiva"
-      NODE_ENV: "production"
-      PORT: "3000"
-      ENABLE_SWAGGER: "true"
-      MINIO_ENDPOINT: "minio"
-      MINIO_PORT: "9000"
-      MINIO_USE_SSL: "false"
-      MINIO_PUBLIC_URL: "https://api-taslim.duckdns.org/minio"
+      # Satu sumber kebenaran: kredensial DB hanya ada di .env.
+      # Catatan: password harus URL-safe (hindari @ : / ? # di dalamnya).
+      DATABASE_URL: mysql://${MYSQL_USER:-admin}:${MYSQL_PASSWORD}@mariadb:3306/${MYSQL_DATABASE:-arxiva}
+      NODE_ENV: 'production'
+      PORT: '3000'
+      ENABLE_SWAGGER: ${ENABLE_SWAGGER:-false}
+      # Kredensial object storage diteruskan dari .env oleh env_file.
+      STORAGE_ENDPOINT: 'rustfs'
+      STORAGE_PORT: '9000'
+      STORAGE_USE_SSL: 'false'
+      STORAGE_PUBLIC_URL: ${STORAGE_PUBLIC_URL:-https://api-taslim.duckdns.org/storage}
     expose:
-      - "3000"
-    networks:
-      - app-network
-
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    restart: unless-stopped
-    command: server /data --console-address ":9001"
-    environment:
-      MINIO_ROOT_USER: "admin"
-      MINIO_ROOT_PASSWORD: "minioadminpassword"
-    expose:
-      - "9000"
-    ports:
-      - "9001:9001"
+      - '3000'
     volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      # PDF BAST ditulis ke /app/public/uploads (lihat pdf.service.js).
+      # Tanpa volume, semua dokumen hilang setiap container di-recreate.
+      - uploads_data:/app/public/uploads
+    # app.js menutup koneksi dengan rapi (maks 10 detik) — beri ruang lebih.
+    stop_grace_period: 30s
     networks:
       - app-network
+    logging: *default-logging
+
+  rustfs:
+    # Object storage S3-compatible. Kode memakai SDK S3 standar
+    # (@aws-sdk/client-s3), jadi backend tidak terikat pada implementasi ini.
+    image: rustfs/rustfs:1.0.4
+    container_name: rustfs
+    restart: unless-stopped
+    environment:
+      # Kredensial dibaca RustFS dari env ini.
+      RUSTFS_ACCESS_KEY: ${STORAGE_ACCESS_KEY:?STORAGE_ACCESS_KEY wajib diisi di .env}
+      RUSTFS_SECRET_KEY: ${STORAGE_SECRET_KEY:?STORAGE_SECRET_KEY wajib diisi di .env}
+      # Port konsol admin (UI) — dipisah dari port S3 9000.
+      RUSTFS_CONSOLE_ADDRESS: '0.0.0.0:9001'
+    command: ['/data']
+    expose:
+      - '9000'
+    ports:
+      # Konsol admin hanya dari host (akses via SSH tunnel), tidak dari internet.
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - rustfs_data:/data
+    healthcheck:
+      # RustFS mengekspos /health di port S3; image-nya berisi curl (tidak ada mc).
+      test: ['CMD-SHELL', 'curl -fsS http://127.0.0.1:9000/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - app-network
+    logging: *default-logging
 
 volumes:
   caddy_data:
   caddy_config:
   mariadb_data:
-  minio_data:
+  # Data bucket + object storage. Lihat docs/DEPLOYMENT.md.
+  rustfs_data:
+  uploads_data:
 
 networks:
   app-network:
