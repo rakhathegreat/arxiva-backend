@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SERVER_DIR: /home/taslim/arxiva-backend
+  SERVER_DIR: /home/taslim/arxiva-deploy
   IMAGE_NAME: ghcr.io/${{ github.repository }}
 
 jobs:
