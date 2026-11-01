@@ -1,8 +1,8 @@
-import bcrypt from "bcrypt";
-import crypto from "crypto";
-import { google } from "googleapis";
-import prisma from "../shared/prisma.js";
-import { generateToken } from "../shared/jwt.js";
+import bcrypt from 'bcrypt';
+import crypto from 'crypto';
+import { google } from 'googleapis';
+import prisma from '../shared/prisma.js';
+import { generateToken } from '../shared/jwt.js';
 
 // -----------------------------------------------------------------------------
 // Helpers: Root Folder ID (prioritas: DB > env)
@@ -10,15 +10,15 @@ import { generateToken } from "../shared/jwt.js";
 
 export const getRootFolderId = async () => {
 	const cfg = await prisma.systemConfig.findUnique({
-		where: { key: "GOOGLE_ROOT_FOLDER_ID" },
+		where: { key: 'GOOGLE_ROOT_FOLDER_ID' },
 	});
 	return cfg?.value || process.env.ROOT_FOLDER_ID || null;
 };
 
 const setRootFolderId = async (folderId) => {
 	await prisma.systemConfig.upsert({
-		where: { key: "GOOGLE_ROOT_FOLDER_ID" },
-		create: { key: "GOOGLE_ROOT_FOLDER_ID", value: folderId },
+		where: { key: 'GOOGLE_ROOT_FOLDER_ID' },
+		create: { key: 'GOOGLE_ROOT_FOLDER_ID', value: folderId },
 		update: { value: folderId },
 	});
 };
@@ -28,9 +28,7 @@ export const login = async (req, res) => {
 		const { username, password } = req.body;
 
 		if (!username || !password) {
-			return res
-				.status(400)
-				.json({ message: "Username and password are required" });
+			return res.status(400).json({ message: 'Username and password are required' });
 		}
 
 		const user = await prisma.user.findUnique({
@@ -39,19 +37,19 @@ export const login = async (req, res) => {
 		});
 
 		if (!user) {
-			return res.status(401).json({ message: "Invalid credentials" });
+			return res.status(401).json({ message: 'Invalid credentials' });
 		}
 
 		const isPasswordValid = await bcrypt.compare(password, user.password);
 
 		if (!isPasswordValid) {
-			return res.status(401).json({ message: "Invalid credentials" });
+			return res.status(401).json({ message: 'Invalid credentials' });
 		}
 
 		const token = generateToken(user);
 
 		res.json({
-			message: "Login successful",
+			message: 'Login successful',
 			user: {
 				id: user.id,
 				username: user.username,
@@ -61,8 +59,8 @@ export const login = async (req, res) => {
 			token,
 		});
 	} catch (error) {
-		console.error("Error in login:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error in login:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -74,7 +72,7 @@ export const me = async (req, res) => {
 		});
 
 		if (!user) {
-			return res.status(404).json({ message: "User not found" });
+			return res.status(404).json({ message: 'User not found' });
 		}
 
 		res.json({
@@ -86,8 +84,8 @@ export const me = async (req, res) => {
 			},
 		});
 	} catch (error) {
-		console.error("Error fetching me:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error fetching me:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -111,7 +109,7 @@ function createPendingState(userId) {
 	for (const [key, entry] of pendingOAuthStates) {
 		if (entry.expiresAt < now) pendingOAuthStates.delete(key);
 	}
-	const state = crypto.randomBytes(24).toString("hex");
+	const state = crypto.randomBytes(24).toString('hex');
 	pendingOAuthStates.set(state, {
 		userId,
 		expiresAt: now + PENDING_STATE_TTL_MS,
@@ -131,7 +129,7 @@ async function exchangeAndConnect(code, adminUserId) {
 	const { tokens } = await oauth2Client.getToken(code);
 	oauth2Client.setCredentials(tokens);
 
-	const oauth2 = google.oauth2({ version: "v2", auth: oauth2Client });
+	const oauth2 = google.oauth2({ version: 'v2', auth: oauth2Client });
 	const userInfo = await oauth2.userinfo.get();
 	const googleEmail = userInfo.data.email;
 
@@ -139,8 +137,7 @@ async function exchangeAndConnect(code, adminUserId) {
 	const currentUser = await prisma.user.findUnique({
 		where: { id: adminUserId },
 	});
-	const newRefreshToken =
-		tokens.refresh_token || currentUser?.googleRefreshToken || null;
+	const newRefreshToken = tokens.refresh_token || currentUser?.googleRefreshToken || null;
 
 	// Hanya SATU akun Google aktif di seluruh sistem pada satu waktu.
 	await prisma.user.updateMany({
@@ -168,32 +165,30 @@ async function exchangeAndConnect(code, adminUserId) {
 
 export const getGoogleAuthUrl = async (req, res) => {
 	try {
-		if (req.user.role !== "ADMIN") {
-			return res
-				.status(403)
-				.json({
-					message: "Hanya admin yang diizinkan untuk menghubungkan akun Google",
-				});
+		if (req.user.role !== 'ADMIN') {
+			return res.status(403).json({
+				message: 'Hanya admin yang diizinkan untuk menghubungkan akun Google',
+			});
 		}
 
 		const scopes = [
-			"https://www.googleapis.com/auth/userinfo.email",
-			"https://www.googleapis.com/auth/userinfo.profile",
-			"https://www.googleapis.com/auth/drive",
-			"https://www.googleapis.com/auth/spreadsheets",
+			'https://www.googleapis.com/auth/userinfo.email',
+			'https://www.googleapis.com/auth/userinfo.profile',
+			'https://www.googleapis.com/auth/drive',
+			'https://www.googleapis.com/auth/spreadsheets',
 		];
 
 		const url = oauth2Client.generateAuthUrl({
-			access_type: "offline",
-			prompt: "consent",
+			access_type: 'offline',
+			prompt: 'consent',
 			scope: scopes,
 			state: createPendingState(req.user.id),
 		});
 
 		res.json({ url });
 	} catch (error) {
-		console.error("Error generating Google Auth URL:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error generating Google Auth URL:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -221,19 +216,15 @@ export const handleGoogleCallback = async (req, res) => {
 		);
 
 	if (error) {
-		console.error("Google callback error:", error);
-		return page(
-			"Koneksi dibatalkan",
-			"Otorisasi Google tidak diselesaikan.",
-			false,
-		);
+		console.error('Google callback error:', error);
+		return page('Koneksi dibatalkan', 'Otorisasi Google tidak diselesaikan.', false);
 	}
 
-	const userId = typeof state === "string" ? consumePendingState(state) : null;
+	const userId = typeof state === 'string' ? consumePendingState(state) : null;
 	if (!code || !userId) {
 		return page(
-			"Tautan tidak valid",
-			"Permintaan ini sudah kedaluwarsa atau tidak dikenal. Mulai ulang dari Pengaturan.",
+			'Tautan tidak valid',
+			'Permintaan ini sudah kedaluwarsa atau tidak dikenal. Mulai ulang dari Pengaturan.',
 			false,
 		);
 	}
@@ -241,15 +232,15 @@ export const handleGoogleCallback = async (req, res) => {
 	try {
 		const googleEmail = await exchangeAndConnect(String(code), userId);
 		return page(
-			"Akun Google terhubung",
+			'Akun Google terhubung',
 			`${googleEmail} — silakan kembali ke aplikasi Taslim.`,
 			true,
 		);
 	} catch (err) {
-		console.error("Error in Google callback:", err);
+		console.error('Error in Google callback:', err);
 		return page(
-			"Gagal menghubungkan",
-			err.message || "Terjadi kesalahan saat menghubungkan akun Google.",
+			'Gagal menghubungkan',
+			err.message || 'Terjadi kesalahan saat menghubungkan akun Google.',
 			false,
 		);
 	}
@@ -257,26 +248,22 @@ export const handleGoogleCallback = async (req, res) => {
 
 export const exchangeGoogleCode = async (req, res) => {
 	try {
-		if (req.user.role !== "ADMIN") {
-			return res
-				.status(403)
-				.json({
-					message: "Hanya admin yang diizinkan untuk menghubungkan akun Google",
-				});
+		if (req.user.role !== 'ADMIN') {
+			return res.status(403).json({
+				message: 'Hanya admin yang diizinkan untuk menghubungkan akun Google',
+			});
 		}
 
 		const { code } = req.body;
 		if (!code) {
-			return res.status(400).json({ message: "Code is required" });
+			return res.status(400).json({ message: 'Code is required' });
 		}
 
 		const googleEmail = await exchangeAndConnect(code, req.user.id);
 		res.json({ googleConnected: true, googleEmail });
 	} catch (error) {
-		console.error("Error exchanging Google code:", error);
-		res
-			.status(500)
-			.json({ message: `Gagal menukar kode Google: ${error.message}` });
+		console.error('Error exchanging Google code:', error);
+		res.status(500).json({ message: `Gagal menukar kode Google: ${error.message}` });
 	}
 };
 
@@ -292,24 +279,21 @@ export const getGoogleStatus = async (req, res) => {
 
 		res.json({
 			googleConnected: activeUser?.googleConnected || false,
-			googleEmail: activeUser?.googleEmail || "",
-			rootFolderId: rootFolderId || "",
+			googleEmail: activeUser?.googleEmail || '',
+			rootFolderId: rootFolderId || '',
 		});
 	} catch (error) {
-		console.error("Error getting Google status:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error getting Google status:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
 export const disconnectGoogle = async (req, res) => {
 	try {
-		if (req.user.role !== "ADMIN") {
-			return res
-				.status(403)
-				.json({
-					message:
-						"Hanya admin yang diizinkan untuk memutuskan koneksi akun Google",
-				});
+		if (req.user.role !== 'ADMIN') {
+			return res.status(403).json({
+				message: 'Hanya admin yang diizinkan untuk memutuskan koneksi akun Google',
+			});
 		}
 
 		await prisma.user.updateMany({
@@ -322,28 +306,25 @@ export const disconnectGoogle = async (req, res) => {
 			},
 		});
 
-		res.json({ message: "Google account disconnected successfully" });
+		res.json({ message: 'Google account disconnected successfully' });
 	} catch (error) {
-		console.error("Error disconnecting Google account:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error disconnecting Google account:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
 /** PUT /auth/google/folder-id — simpan Root Folder ID Google Drive (admin only). */
 export const updateFolderId = async (req, res) => {
 	try {
-		if (req.user.role !== "ADMIN") {
-			return res
-				.status(403)
-				.json({
-					message:
-						"Hanya admin yang diizinkan mengubah konfigurasi Google Drive",
-				});
+		if (req.user.role !== 'ADMIN') {
+			return res.status(403).json({
+				message: 'Hanya admin yang diizinkan mengubah konfigurasi Google Drive',
+			});
 		}
 
 		const { folderId } = req.body;
-		if (!folderId || typeof folderId !== "string" || !folderId.trim()) {
-			return res.status(400).json({ message: "folderId wajib diisi" });
+		if (!folderId || typeof folderId !== 'string' || !folderId.trim()) {
+			return res.status(400).json({ message: 'folderId wajib diisi' });
 		}
 
 		await setRootFolderId(folderId.trim());
@@ -352,21 +333,19 @@ export const updateFolderId = async (req, res) => {
 		// buat spreadsheet untuk yang belum punya & isi data item dari DB (best-effort).
 		let sync = null;
 		try {
-			const { syncAllLocationSheets } = await import(
-				"../services/sheet.service.js"
-			);
+			const { syncAllLocationSheets } = await import('../services/sheet.service.js');
 			sync = await syncAllLocationSheets();
 		} catch (syncErr) {
-			console.error("[auth] Gagal sinkron lokasi setelah set folder:", syncErr.message);
+			console.error('[auth] Gagal sinkron lokasi setelah set folder:', syncErr.message);
 		}
 
 		res.json({
-			message: "Root Folder ID berhasil disimpan",
+			message: 'Root Folder ID berhasil disimpan',
 			rootFolderId: folderId.trim(),
 			sync: sync || { created: 0, updated: 0, failed: [] },
 		});
 	} catch (error) {
-		console.error("Error updating folder ID:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error updating folder ID:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };

@@ -13,8 +13,12 @@ const SN = (n) => `SN-${RUN}-${n}`;
 let admin, mitra, model;
 
 async function seed() {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
-	mitra = await prisma.user.create({ data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' } });
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
+	});
+	mitra = await prisma.user.create({
+		data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' },
+	});
 
 	const category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
 	const brand = await prisma.brand.create({
@@ -66,9 +70,26 @@ beforeAll(async () => {
 afterAll(async () => {
 	await prisma.itemMutation.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
 	await prisma.item.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
+	// Alur intake membuat MaterialModel implisit bernama "Default" yang menempel
+	// pada brand/kategori milik run ini. Hapus dulu berdasarkan brandId &
+	// materialCategoryId, kalau tidak deleteMany brand di bawah kena FK.
+	const brs = await prisma.brand.findMany({
+		where: { nama: { startsWith: `BRD-${RUN}` } },
+		select: { id: true },
+	});
+	const cats = await prisma.materialCategory.findMany({
+		where: { nama: { startsWith: `CAT-${RUN}` } },
+		select: { id: true },
+	});
+	await prisma.materialModel.deleteMany({ where: { brandId: { in: brs.map((b) => b.id) } } });
+	await prisma.materialModel.deleteMany({
+		where: { materialCategoryId: { in: cats.map((c) => c.id) } },
+	});
 	await prisma.materialModel.deleteMany({ where: { nama: { startsWith: `MDL-${RUN}` } } });
 	await prisma.brand.deleteMany({ where: { nama: { startsWith: `BRD-${RUN}` } } });
 	await prisma.materialCategory.deleteMany({ where: { nama: { startsWith: `CAT-${RUN}` } } });
+	// Lokasi dibuat implisit oleh resolveLocationId (LOC-...).
+	await prisma.location.deleteMany({ where: { name: { startsWith: `LOC-${RUN}` } } });
 	await prisma.user.deleteMany({ where: { username: { startsWith: `${RUN}-` } } });
 	await prisma.$disconnect();
 });
@@ -104,7 +125,11 @@ describe('updateItem — material jadi Rusak pindah ownership ke KP', () => {
 		await updateItem(
 			{
 				params: { id: item.id },
-				body: { serialNumber: item.serialNumber, status: 'Tersedia', mitra: mitra.username },
+				body: {
+					serialNumber: item.serialNumber,
+					status: 'Tersedia',
+					mitra: mitra.username,
+				},
 				user: { id: mitra.id, role: 'MITRA' },
 			},
 			res,

@@ -26,10 +26,18 @@ afterAll(async () => {
 	await prisma.item.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
 	// Hapus model milik run ini (termasuk model global "Default" yang dipakai
 	// item RUSAK tanpa tipe) sebelum brand/kategori dihapus.
-	const brs = await prisma.brand.findMany({ where: { nama: { startsWith: `BRD-${RUN}` } }, select: { id: true } });
-	const cats = await prisma.materialCategory.findMany({ where: { nama: { startsWith: `CAT-${RUN}` } }, select: { id: true } });
+	const brs = await prisma.brand.findMany({
+		where: { nama: { startsWith: `BRD-${RUN}` } },
+		select: { id: true },
+	});
+	const cats = await prisma.materialCategory.findMany({
+		where: { nama: { startsWith: `CAT-${RUN}` } },
+		select: { id: true },
+	});
 	await prisma.materialModel.deleteMany({ where: { brandId: { in: brs.map((b) => b.id) } } });
-	await prisma.materialModel.deleteMany({ where: { materialCategoryId: { in: cats.map((c) => c.id) } } });
+	await prisma.materialModel.deleteMany({
+		where: { materialCategoryId: { in: cats.map((c) => c.id) } },
+	});
 	await prisma.materialModel.deleteMany({ where: { nama: { startsWith: `MDL-${RUN}` } } });
 	await prisma.brand.deleteMany({ where: { nama: { startsWith: `BRD-${RUN}` } } });
 	await prisma.materialCategory.deleteMany({ where: { nama: { startsWith: `CAT-${RUN}` } } });
@@ -43,9 +51,30 @@ const adminActor = () => ({ id: admin.id, role: 'ADMIN', profile: null });
 describe('intake.service.receiveItems — integration', () => {
 	it('happy path: batch 3 item → semua ok, nomor IN- berurutan, ledger tercatat', async () => {
 		const results = await receiveItems(adminActor(), [
-			{ serialNumber: SN(1), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-a`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
-			{ serialNumber: SN(2), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-a`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
-			{ serialNumber: SN(3), kondisi: 'Rusak', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, ticket: `TKT-${RUN}`, lokasiPenyimpanan: `LOC-${RUN}-rusak` },
+			{
+				serialNumber: SN(1),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-a`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
+			{
+				serialNumber: SN(2),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-a`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
+			{
+				serialNumber: SN(3),
+				kondisi: 'Rusak',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				ticket: `TKT-${RUN}`,
+				lokasiPenyimpanan: `LOC-${RUN}-rusak`,
+			},
 		]);
 
 		expect(results.map((r) => r.ok)).toEqual([true, true, true]);
@@ -76,9 +105,30 @@ describe('intake.service.receiveItems — integration', () => {
 
 	it('per-item atomic: duplikat intra-batch tidak menggagalkan item lain', async () => {
 		const results = await receiveItems(adminActor(), [
-			{ serialNumber: SN(10), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-b`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
-			{ serialNumber: SN(10), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-b`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
-			{ serialNumber: SN(11), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-b`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(10),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-b`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
+			{
+				serialNumber: SN(10),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-b`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
+			{
+				serialNumber: SN(11),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-b`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 
 		expect(results[0].ok).toBe(true);
@@ -88,17 +138,38 @@ describe('intake.service.receiveItems — integration', () => {
 
 	it('Baru pada SN terdaftar → SN_REGISTERED; Dismantle pada SN asing → INVALID_SN_FOR_DISMANTLE', async () => {
 		const baru = await receiveItems(adminActor(), [
-			{ serialNumber: SN(20), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-c`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(20),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-c`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		expect(baru[0].ok).toBe(true);
 
 		const reRegistered = await receiveItems(adminActor(), [
-			{ serialNumber: SN(20), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-c`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(20),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-c`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		expect(reRegistered[0]).toMatchObject({ ok: false, reason: 'SN_REGISTERED' });
 
 		const ghostDismantle = await receiveItems(adminActor(), [
-			{ serialNumber: SN(21), kondisi: 'Dismantle', paNumber: 'PA-1', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(21),
+				kondisi: 'Dismantle',
+				paNumber: 'PA-1',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		expect(ghostDismantle[0]).toMatchObject({ ok: false, reason: 'INVALID_SN_FOR_DISMANTLE' });
 	}, 20000);
@@ -110,24 +181,43 @@ describe('intake.service.receiveItems — integration', () => {
 		expect(loc.capacity).toBe(1);
 
 		const first = await receiveItems(adminActor(), [
-			{ serialNumber: SN(30), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-d`, lokasiPenyimpanan: `LOC-${RUN}-penuh` },
+			{
+				serialNumber: SN(30),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-d`,
+				lokasiPenyimpanan: `LOC-${RUN}-penuh`,
+			},
 		]);
 		expect(first[0].ok).toBe(true);
 
 		const second = await receiveItems(adminActor(), [
-			{ serialNumber: SN(31), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-d`, lokasiPenyimpanan: `LOC-${RUN}-penuh` },
+			{
+				serialNumber: SN(31),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-d`,
+				lokasiPenyimpanan: `LOC-${RUN}-penuh`,
+			},
 		]);
 		expect(second[0]).toMatchObject({ ok: false, reason: 'CAPACITY_FULL' });
 		expect(await prisma.item.count({ where: { locationId: loc.id } })).toBe(1);
-		expect(
-			await prisma.itemMutation.count({ where: { serialNumber: SN(31) } })
-		).toBe(0);
+		expect(await prisma.itemMutation.count({ where: { serialNumber: SN(31) } })).toBe(0);
 	}, 20000);
 
 	it('regresi: kategori baru tidak lagi 500 (bug materialType hantu)', async () => {
 		const catName = `CAT-${RUN}-baru-juga`;
 		const results = await receiveItems(adminActor(), [
-			{ serialNumber: SN(40), kondisi: 'Baru', kategori: catName, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-e`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(40),
+				kondisi: 'Baru',
+				kategori: catName,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-e`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		expect(results[0].ok).toBe(true);
 		expect(await prisma.materialCategory.findFirst({ where: { nama: catName } })).toBeTruthy();
@@ -141,21 +231,44 @@ describe('intake.service.receiveItems — integration', () => {
 
 		// SN tak terdaftar → tolak untuk mitra
 		const unknown = await receiveItems(mitraActor, [
-			{ serialNumber: SN(50), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-f`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(50),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-f`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		expect(unknown[0]).toMatchObject({ ok: false, reason: 'INVALID_MITRA_SOURCE' });
 
 		// Item KP masih Tersedia di rak → tolak
 		await receiveItems(adminActor(), [
-			{ serialNumber: SN(51), kondisi: 'Baru', kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, tipe: `MDL-${RUN}-g`, lokasiPenyimpanan: `LOC-${RUN}-rak` },
+			{
+				serialNumber: SN(51),
+				kondisi: 'Baru',
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				tipe: `MDL-${RUN}-g`,
+				lokasiPenyimpanan: `LOC-${RUN}-rak`,
+			},
 		]);
 		const stillInKP = await receiveItems(mitraActor, [
-			{ serialNumber: SN(51), kondisi: 'Rusak', ticket: `TKT-${RUN}-m`, kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, lokasiPenyimpanan: `LOC-${RUN}-rusak` },
+			{
+				serialNumber: SN(51),
+				kondisi: 'Rusak',
+				ticket: `TKT-${RUN}-m`,
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				lokasiPenyimpanan: `LOC-${RUN}-rusak`,
+			},
 		]);
 		expect(stillInKP[0]).toMatchObject({ ok: false, reason: 'INVALID_MITRA_SOURCE' });
 
 		// Item yang sudah "Keluar" (lokasi Keluar) → mitra boleh menerima
-		let keluarLoc = await prisma.location.findFirst({ where: { name: 'Keluar', parentId: null } });
+		let keluarLoc = await prisma.location.findFirst({
+			where: { name: 'Keluar', parentId: null },
+		});
 		if (!keluarLoc) {
 			keluarLoc = await prisma.location.create({
 				data: { name: 'Keluar', type: 'BOX', isActive: true },
@@ -166,7 +279,14 @@ describe('intake.service.receiveItems — integration', () => {
 			data: { status: 'digunakan', locationId: keluarLoc.id },
 		});
 		const accepted = await receiveItems(mitraActor, [
-			{ serialNumber: SN(51), kondisi: 'Rusak', ticket: `TKT-${RUN}-m`, kategori: `CAT-${RUN}`, merek: `BRD-${RUN}`, lokasiPenyimpanan: `LOC-${RUN}-rusak` },
+			{
+				serialNumber: SN(51),
+				kondisi: 'Rusak',
+				ticket: `TKT-${RUN}-m`,
+				kategori: `CAT-${RUN}`,
+				merek: `BRD-${RUN}`,
+				lokasiPenyimpanan: `LOC-${RUN}-rusak`,
+			},
 		]);
 		expect(accepted[0].ok).toBe(true);
 	}, 30000);
@@ -181,17 +301,17 @@ describe('intake.service.receiveItems — integration', () => {
 
 		// Pintu keluar: tidak pernah ditolak walau melebihi kapasitas
 		await expect(
-			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, exitLoc.id, 99))
+			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, exitLoc.id, 99)),
 		).resolves.toBeUndefined();
 
 		const normalLoc = await prisma.location.create({
 			data: { name: `LOC-${RUN}-normal`, type: 'BOX', capacity: 1, isActive: true },
 		});
 		await expect(
-			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, normalLoc.id, 2))
+			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, normalLoc.id, 2)),
 		).rejects.toMatchObject({ code: 'CAPACITY_FULL' });
 		await expect(
-			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, normalLoc.id, 1))
+			prisma.$transaction((tx) => assertCapacityAvailableUnlessExit(tx, normalLoc.id, 1)),
 		).resolves.toBeUndefined();
 	}, 20000);
 });

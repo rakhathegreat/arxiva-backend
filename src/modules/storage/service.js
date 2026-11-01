@@ -25,7 +25,8 @@ async function getOrCreateLocation(name, createData = {}, tx = null) {
 export async function resolveLocationId(lokasiPenyimpanan, tx = null) {
 	if (!lokasiPenyimpanan || lokasiPenyimpanan === 'Diluar') {
 		let loc = await db(tx).location.findFirst({ where: { name: 'Diluar', parentId: null } });
-		if (!loc) loc = await db(tx).location.findFirst({ where: { name: 'Keluar', parentId: null } });
+		if (!loc)
+			loc = await db(tx).location.findFirst({ where: { name: 'Keluar', parentId: null } });
 		if (!loc) loc = await getOrCreateLocation('Diluar', { type: 'BOX', isActive: true }, tx);
 		return loc.id;
 	}
@@ -40,7 +41,7 @@ export async function resolveLocationId(lokasiPenyimpanan, tx = null) {
 			level = await getOrCreateLocation(
 				lvlName,
 				{ parentId: rack.id, type: 'BOX', capacity: 50, isActive: true },
-				tx
+				tx,
 			);
 		}
 		return level.id;
@@ -49,7 +50,7 @@ export async function resolveLocationId(lokasiPenyimpanan, tx = null) {
 	const loc = await getOrCreateLocation(
 		lokasiPenyimpanan,
 		{ type: 'BOX', isActive: true, capacity: 50 },
-		tx
+		tx,
 	);
 	return loc.id;
 }
@@ -77,7 +78,8 @@ export async function assertCapacityAvailableUnlessExit(tx, locationId, incoming
 export async function assertCapacityAvailable(tx, locationId, incomingCount = 1) {
 	if (!locationId) return;
 
-	const rows = await tx.$queryRaw`SELECT capacity FROM Location WHERE id = ${locationId} FOR UPDATE`;
+	const rows =
+		await tx.$queryRaw`SELECT capacity FROM Location WHERE id = ${locationId} FOR UPDATE`;
 	if (!rows || rows.length === 0) {
 		throw Object.assign(new Error('Lokasi tujuan tidak valid'), { statusCode: 400 });
 	}

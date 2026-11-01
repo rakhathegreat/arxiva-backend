@@ -12,11 +12,20 @@ const RUN = `USG${Date.now().toString(36).toUpperCase()}`;
 let mitra, model, item;
 
 async function seed() {
-	mitra = await prisma.user.create({ data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' } });
+	mitra = await prisma.user.create({
+		data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' },
+	});
 	const category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	const brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
+	const brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
+	});
 	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
 	});
 }
 
@@ -91,7 +100,10 @@ describe('pemakaian mitra (Digunakan) sync nomor PA ke Item', () => {
 	});
 
 	it('transaksi Keluar (distribusi, bukan pemakaian) tidak menggeser paNumber item', async () => {
-		const item = await createItem(`SN-${RUN}-A2`, { status: 'digunakan', paNumber: `PA-${RUN}-2` });
+		const item = await createItem(`SN-${RUN}-A2`, {
+			status: 'digunakan',
+			paNumber: `PA-${RUN}-2`,
+		});
 
 		const res = mockRes();
 		await createTransaction(

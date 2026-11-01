@@ -1,5 +1,10 @@
 import express from 'express';
-import { getTransactions, getTransactionById, createTransaction, deleteTransaction } from '../controllers/transaction.controller.js';
+import {
+	getTransactions,
+	getTransactionById,
+	createTransaction,
+	deleteTransaction,
+} from '../controllers/transaction.controller.js';
 import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();

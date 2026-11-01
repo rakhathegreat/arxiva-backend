@@ -1,24 +1,17 @@
-import { getGoogleServices } from "./google.js";
-import { getRootFolderId } from "../controllers/auth.controller.js";
-import prisma from "../shared/prisma.js";
+import { getGoogleServices } from './google.js';
+import { getRootFolderId } from '../controllers/auth.controller.js';
+import prisma from '../shared/prisma.js';
 
 const SHEET_HEADERS = [
-	[
-		"Serial Number",
-		"Kategori",
-		"Merek",
-		"Status",
-		"Tanggal Masuk",
-		"Tanggal Keluar",
-	],
+	['Serial Number', 'Kategori', 'Merek', 'Status', 'Tanggal Masuk', 'Tanggal Keluar'],
 ];
 
 const formatDate = (date) => {
-	if (!date) return "";
+	if (!date) return '';
 	try {
 		return new Date(date).toISOString().slice(0, 10);
 	} catch {
-		return "";
+		return '';
 	}
 };
 
@@ -30,39 +23,35 @@ export const createSheetForLevel = async (name) => {
 		const file = await drive.files.create({
 			requestBody: {
 				name,
-				mimeType: "application/vnd.google-apps.spreadsheet",
+				mimeType: 'application/vnd.google-apps.spreadsheet',
 				parents: rootFolderId ? [rootFolderId] : [],
 			},
-			fields: "id, webViewLink",
+			fields: 'id, webViewLink',
 		});
 
 		const sheetId = file.data.id;
 		const sheetUrl =
-			file.data.webViewLink ||
-			`https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
+			file.data.webViewLink || `https://docs.google.com/spreadsheets/d/${sheetId}/edit`;
 
 		try {
 			await sheets.spreadsheets.values.update({
 				spreadsheetId: sheetId,
-				range: "Sheet1!A1:F1",
-				valueInputOption: "USER_ENTERED",
+				range: 'Sheet1!A1:F1',
+				valueInputOption: 'USER_ENTERED',
 				requestBody: { values: SHEET_HEADERS },
 			});
 		} catch (err) {
 			await sheets.spreadsheets.values.update({
 				spreadsheetId: sheetId,
-				range: "A1:F1",
-				valueInputOption: "USER_ENTERED",
+				range: 'A1:F1',
+				valueInputOption: 'USER_ENTERED',
 				requestBody: { values: SHEET_HEADERS },
 			});
 		}
 
 		return { sheetId, sheetUrl };
 	} catch (error) {
-		console.error(
-			`Error creating Google Sheet for ${name}:`,
-			error?.message || error,
-		);
+		console.error(`Error creating Google Sheet for ${name}:`, error?.message || error);
 		return { sheetId: null, sheetUrl: null, error: error?.message || String(error) };
 	}
 };
@@ -79,10 +68,10 @@ export const writeItemsToSheet = async (sheetId, items) => {
 	try {
 		const { sheets } = await getGoogleServices();
 		const rows = (items || []).map((item) => [
-			item.serialNumber || "",
-			item.model?.materialCategory?.nama || "",
-			item.model?.brand?.nama || "",
-			item.status || "",
+			item.serialNumber || '',
+			item.model?.materialCategory?.nama || '',
+			item.model?.brand?.nama || '',
+			item.status || '',
 			formatDate(item.entryDate),
 			formatDate(item.exitDate),
 		]);
@@ -90,24 +79,21 @@ export const writeItemsToSheet = async (sheetId, items) => {
 		try {
 			await sheets.spreadsheets.values.update({
 				spreadsheetId: sheetId,
-				range: "Sheet1!A1:F" + Math.max(values.length, 1),
-				valueInputOption: "USER_ENTERED",
+				range: 'Sheet1!A1:F' + Math.max(values.length, 1),
+				valueInputOption: 'USER_ENTERED',
 				requestBody: { values },
 			});
 		} catch (err) {
 			await sheets.spreadsheets.values.update({
 				spreadsheetId: sheetId,
-				range: "A1:F" + Math.max(values.length, 1),
-				valueInputOption: "USER_ENTERED",
+				range: 'A1:F' + Math.max(values.length, 1),
+				valueInputOption: 'USER_ENTERED',
 				requestBody: { values },
 			});
 		}
 		return true;
 	} catch (error) {
-		console.error(
-			`Error writing items to Google Sheet ${sheetId}:`,
-			error.message,
-		);
+		console.error(`Error writing items to Google Sheet ${sheetId}:`, error.message);
 		return false;
 	}
 };
@@ -136,7 +122,7 @@ export const syncAllLocationSheets = async () => {
 	try {
 		const rootFolderId = await getRootFolderId();
 		if (!rootFolderId) {
-			console.warn("[sheet] Root folder belum diset — batal sinkron lokasi.");
+			console.warn('[sheet] Root folder belum diset — batal sinkron lokasi.');
 			return result;
 		}
 
@@ -144,7 +130,7 @@ export const syncAllLocationSheets = async () => {
 		const topLocations = await prisma.location.findMany({
 			where: {
 				parentId: null,
-				type: { in: ["PALLET", "RACK", "BOX"] },
+				type: { in: ['PALLET', 'RACK', 'BOX'] },
 			},
 			include: {
 				children: true,
@@ -153,9 +139,9 @@ export const syncAllLocationSheets = async () => {
 
 		const targets = [];
 		for (const loc of topLocations) {
-			if (loc.type === "RACK") {
+			if (loc.type === 'RACK') {
 				for (const child of loc.children) {
-					if (child.type === "BOX") {
+					if (child.type === 'BOX') {
 						targets.push({ location: child, name: `${loc.name} - ${child.name}` });
 					}
 				}
@@ -171,9 +157,7 @@ export const syncAllLocationSheets = async () => {
 				if (!sheetId) {
 					const created = await createSheetForLevel(name);
 					if (!created.sheetId) {
-						result.failed.push(
-							created.error ? `${name} (${created.error})` : name,
-						);
+						result.failed.push(created.error ? `${name} (${created.error})` : name);
 						continue;
 					}
 					sheetId = created.sheetId;
@@ -195,7 +179,7 @@ export const syncAllLocationSheets = async () => {
 
 		return result;
 	} catch (error) {
-		console.error("[sheet] Error saat sinkron lokasi:", error.message);
+		console.error('[sheet] Error saat sinkron lokasi:', error.message);
 		return result;
 	}
 };
@@ -209,10 +193,7 @@ export const updateSheetName = async (sheetId, newName) => {
 			requestBody: { name: newName },
 		});
 	} catch (error) {
-		console.error(
-			`Error updating Google Sheet name for ID ${sheetId}:`,
-			error.message,
-		);
+		console.error(`Error updating Google Sheet name for ID ${sheetId}:`, error.message);
 	}
 };
 
@@ -224,9 +205,6 @@ export const deleteSheet = async (sheetId) => {
 		await drive.files.delete({ fileId: sheetId });
 		console.log(`Successfully deleted Google Sheet with ID: ${sheetId}`);
 	} catch (error) {
-		console.error(
-			`Error deleting Google Sheet for ID ${sheetId}:`,
-			error.message,
-		);
+		console.error(`Error deleting Google Sheet for ID ${sheetId}:`, error.message);
 	}
 };

@@ -5,7 +5,8 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const { getDashboardSummary, getMitraPerformance } = await import('../../src/controllers/dashboard.controller.js');
+const { getDashboardSummary, getMitraPerformance } =
+	await import('../../src/controllers/dashboard.controller.js');
 
 const RUN = `DASH${Date.now().toString(36).toUpperCase()}`;
 let mitra, model;
@@ -29,13 +30,27 @@ async function seed() {
 			username: `${RUN}-mitra`,
 			password: 'x',
 			role: 'MITRA',
-			profile: { create: { email: `${RUN}@test.id`, nama: `Mitra ${RUN}`, telepon: '-', alamat: '-' } },
+			profile: {
+				create: {
+					email: `${RUN}@test.id`,
+					nama: `Mitra ${RUN}`,
+					telepon: '-',
+					alamat: '-',
+				},
+			},
 		},
 	});
 	const category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	const brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
+	const brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
+	});
 	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
 	});
 }
 
@@ -80,14 +95,17 @@ describe('dashboard summary aggregation', () => {
 				requestNumber: `REQ-${RUN}-0001`,
 				status: 'MENUNGGU',
 				requesterId: mitra.id,
-				requestItems: { create: [{ materialCategoryId: model.materialCategoryId, quantity: 2 }] },
+				requestItems: {
+					create: [{ materialCategoryId: model.materialCategoryId, quantity: 2 }],
+				},
 			},
 		});
 
 		await prisma.itemMutation.create({
 			data: {
 				type: 'MASUK',
-				itemId: (await prisma.item.findUnique({ where: { serialNumber: `SN-${RUN}-T1` } })).id,
+				itemId: (await prisma.item.findUnique({ where: { serialNumber: `SN-${RUN}-T1` } }))
+					.id,
 				userId: mitra.id,
 				serialNumber: `SN-${RUN}-T1`,
 				brand: 'X',
@@ -104,7 +122,10 @@ describe('dashboard summary aggregation', () => {
 
 		// Inventori: total konsisten dengan penjumlahan setiap status.
 		expect(data.inventoryStats.totalItems).toBe(
-			data.inventoryStats.tersedia + data.inventoryStats.diluar + data.inventoryStats.rusak + data.inventoryStats.hilang,
+			data.inventoryStats.tersedia +
+				data.inventoryStats.diluar +
+				data.inventoryStats.rusak +
+				data.inventoryStats.hilang,
 		);
 		// Item yang baru dibuat tersedia → pasti tidak nol.
 		expect(data.inventoryStats.tersedia).toBeGreaterThanOrEqual(1);
@@ -117,7 +138,10 @@ describe('dashboard summary aggregation', () => {
 		// Request terbaru ≤5, termuat request kita, terurut menurun.
 		expect(data.recentRequests.length).toBeLessThanOrEqual(5);
 		expect(data.recentRequests.map((r) => r.requestNumber)).toContain(`REQ-${RUN}-0001`);
-		expect(data.recentRequests[0].requestedAt >= data.recentRequests[data.recentRequests.length - 1].requestedAt).toBe(true);
+		expect(
+			data.recentRequests[0].requestedAt >=
+				data.recentRequests[data.recentRequests.length - 1].requestedAt,
+		).toBe(true);
 
 		// Aktivitas terbaru ≤10 dan memuat mutasi kita.
 		expect(data.recentActivity.length).toBeLessThanOrEqual(10);

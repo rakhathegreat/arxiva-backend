@@ -104,9 +104,7 @@ export function planUsedPaBackfill(items, mutationsByItem = {}, usersById = {}, 
 
 		const ctx = opts.itemContext?.[item.id] || {};
 		const knownNames = new Set(
-			[ctx.ownerName, ctx.locationName, ctx.brandName]
-				.map(normalizeName)
-				.filter(Boolean)
+			[ctx.ownerName, ctx.locationName, ctx.brandName].map(normalizeName).filter(Boolean),
 		);
 
 		const pa = paFromMitraMutation(latest, knownNames);

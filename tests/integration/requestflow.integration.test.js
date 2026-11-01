@@ -6,11 +6,9 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const {
-	completeRequest,
-	releaseAllocations,
-	buildAllocationSnapshot,
-} = await import('../../src/modules/requestflow/requestflow.service.js');
+const { completeRequest, releaseAllocations } =
+	await import('../../src/modules/requestflow/requestflow.service.js');
+const { buildAllocationSnapshot } = await import('../../src/modules/bastdoc/snapshot.js');
 
 const RUN = `RF${Date.now().toString(36).toUpperCase()}`;
 let admin, category, brand, model, originLoc;
@@ -29,7 +27,11 @@ async function makeMitra() {
 	return mitra;
 }
 
-async function makeRequestWithAllocations({ itemCount = 2, withPartnerLocation = true, capacity = 999999 }) {
+async function makeRequestWithAllocations({
+	itemCount = 2,
+	withPartnerLocation = true,
+	capacity = 999999,
+}) {
 	const owner = await makeMitra();
 	const request = await prisma.request.create({
 		data: {
@@ -37,7 +39,12 @@ async function makeRequestWithAllocations({ itemCount = 2, withPartnerLocation =
 			requesterId: owner.id,
 			requestItems: {
 				create: [
-					{ materialCategoryId: category.id, brandId: brand.id, modelId: model.id, quantity: itemCount },
+					{
+						materialCategoryId: category.id,
+						brandId: brand.id,
+						modelId: model.id,
+						quantity: itemCount,
+					},
 				],
 			},
 		},
@@ -59,16 +66,25 @@ async function makeRequestWithAllocations({ itemCount = 2, withPartnerLocation =
 		});
 		items.push(item);
 		await prisma.requestAllocation.create({
-			data: { requestItemId: request.requestItems[0].id, itemId: item.id, allocatedById: admin.id },
+			data: {
+				requestItemId: request.requestItems[0].id,
+				itemId: item.id,
+				allocatedById: admin.id,
+			},
 		});
-		await prisma.requestItem.update({ where: { id: request.requestItems[0].id }, data: { fulfilledQuantity: { increment: 1 } } });
+		await prisma.requestItem.update({
+			where: { id: request.requestItems[0].id },
+			data: { fulfilledQuantity: { increment: 1 } },
+		});
 	}
 
 	if (withPartnerLocation) {
 		const partnerLocation = await prisma.location.create({
 			data: { name: `${RUN}-partner-${request.id.slice(0, 5)}`, type: 'PARTNER', capacity },
 		});
-		await prisma.userLocation.create({ data: { userId: owner.id, locationId: partnerLocation.id } });
+		await prisma.userLocation.create({
+			data: { userId: owner.id, locationId: partnerLocation.id },
+		});
 		return { request: await refetch(request.id), items, partnerLocation, owner };
 	}
 	return { request: await refetch(request.id), items, partnerLocation: null, owner };
@@ -81,19 +97,36 @@ const refetch = (id) =>
 	});
 
 beforeAll(async () => {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
-	category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}`, safetyStock: 5 } });
-	brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
-	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
 	});
-	originLoc = await prisma.location.create({ data: { name: `LOC-${RUN}-gudang`, type: 'BOX', capacity: 100, isActive: true } });
+	category = await prisma.materialCategory.create({
+		data: { nama: `CAT-${RUN}`, safetyStock: 5 },
+	});
+	brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
+	});
+	model = await prisma.materialModel.create({
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
+	});
+	originLoc = await prisma.location.create({
+		data: { name: `LOC-${RUN}-gudang`, type: 'BOX', capacity: 100, isActive: true },
+	});
 });
 
 afterAll(async () => {
 	await prisma.itemMutation.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
-	await prisma.requestAllocation.deleteMany({ where: { requestItem: { request: { requestNumber: { startsWith: `${RUN}-` } } } } });
-	await prisma.requestItem.deleteMany({ where: { request: { requestNumber: { startsWith: `${RUN}-` } } } });
+	await prisma.requestAllocation.deleteMany({
+		where: { requestItem: { request: { requestNumber: { startsWith: `${RUN}-` } } } },
+	});
+	await prisma.requestItem.deleteMany({
+		where: { request: { requestNumber: { startsWith: `${RUN}-` } } },
+	});
 	await prisma.request.deleteMany({ where: { requestNumber: { startsWith: `${RUN}-` } } });
 	await prisma.item.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
 	await prisma.userLocation.deleteMany({ where: { user: { username: { startsWith: RUN } } } });
@@ -137,7 +170,7 @@ describe('completeRequest — integration', () => {
 		const actor = { id: admin.id };
 
 		await expect(
-			prisma.$transaction((tx) => completeRequest(tx, request, actor))
+			prisma.$transaction((tx) => completeRequest(tx, request, actor)),
 		).rejects.toMatchObject({ code: 'CAPACITY_FULL' });
 
 		const unchanged = await refetch(request.id);
@@ -145,26 +178,33 @@ describe('completeRequest — integration', () => {
 		for (const item of items) {
 			const still = await prisma.item.findUnique({ where: { id: item.id } });
 			expect(still.status).toBe('tersedia');
-			expect(await prisma.itemMutation.count({ where: { itemId: item.id, type: 'KELUAR' } })).toBe(0);
+			expect(
+				await prisma.itemMutation.count({ where: { itemId: item.id, type: 'KELUAR' } }),
+			).toBe(0);
 		}
 	}, 20000);
 
 	it('mitra tanpa UserLocation → auto-provision lokasi PARTNER bernama mitra + completion sukses', async () => {
-		const { request, items, owner } = await makeRequestWithAllocations({ withPartnerLocation: false });
+		const { request, items, owner } = await makeRequestWithAllocations({
+			withPartnerLocation: false,
+		});
 		const actor = { id: admin.id };
 
 		const updated = await prisma.$transaction((tx) => completeRequest(tx, request, actor));
 
 		expect(updated.status).toBe('SELESAI');
 
-		const link = await prisma.userLocation.findFirst({ where: { userId: owner.id }, include: { location: true } });
+		const link = await prisma.userLocation.findFirst({
+			where: { userId: owner.id },
+			include: { location: true },
+		});
 		expect(link).toBeTruthy();
 		expect(link.location.type).toBe('PARTNER');
 		expect(link.location.name).toBe(`${RUN} PT`);
 
 		const after = await prisma.item.findUnique({ where: { id: items[0].id } });
-			expect(after.locationId).toBe(link.locationId);
-			expect(after.status).toBe('digunakan');
+		expect(after.locationId).toBe(link.locationId);
+		expect(after.status).toBe('digunakan');
 	}, 20000);
 
 	it('completion menulis notifikasi untuk requester (Opsi A)', async () => {
@@ -198,7 +238,15 @@ describe('releaseAllocations & buildAllocationSnapshot — integration', () => {
 			include: {
 				requestItems: {
 					include: {
-						allocations: { include: { item: { include: { model: { include: { brand: true, materialCategory: true } } } } } },
+						allocations: {
+							include: {
+								item: {
+									include: {
+										model: { include: { brand: true, materialCategory: true } },
+									},
+								},
+							},
+						},
 					},
 				},
 			},

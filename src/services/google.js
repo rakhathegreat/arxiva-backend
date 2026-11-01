@@ -1,5 +1,5 @@
-import { google } from "googleapis";
-import prisma from "../shared/prisma.js";
+import { google } from 'googleapis';
+import prisma from '../shared/prisma.js';
 
 const oauth2Client = new google.auth.OAuth2(
 	process.env.GOOGLE_CLIENT_ID,
@@ -8,7 +8,7 @@ const oauth2Client = new google.auth.OAuth2(
 );
 
 // Auto-persist refresh token saat Google merotasinya — mencegah koneksi terputus diam-diam.
-oauth2Client.on("tokens", async (tokens) => {
+oauth2Client.on('tokens', async (tokens) => {
 	if (tokens.refresh_token) {
 		try {
 			await prisma.user.updateMany({
@@ -16,10 +16,7 @@ oauth2Client.on("tokens", async (tokens) => {
 				data: { googleRefreshToken: tokens.refresh_token },
 			});
 		} catch (err) {
-			console.error(
-				"[Google] Gagal menyimpan refresh token baru:",
-				err.message,
-			);
+			console.error('[Google] Gagal menyimpan refresh token baru:', err.message);
 		}
 	}
 	if (tokens.access_token) {
@@ -29,7 +26,7 @@ oauth2Client.on("tokens", async (tokens) => {
 				data: { googleAccessToken: tokens.access_token },
 			});
 		} catch (err) {
-			console.error("[Google] Gagal menyimpan access token baru:", err.message);
+			console.error('[Google] Gagal menyimpan access token baru:', err.message);
 		}
 	}
 });
@@ -41,9 +38,7 @@ export const getUserOAuthClient = async () => {
 	});
 
 	if (!activeUser || !activeUser.googleRefreshToken) {
-		throw new Error(
-			"Akun Google sistem belum terhubung atau refresh token tidak ditemukan",
-		);
+		throw new Error('Akun Google sistem belum terhubung atau refresh token tidak ditemukan');
 	}
 
 	oauth2Client.setCredentials({
@@ -57,8 +52,8 @@ export const getUserOAuthClient = async () => {
 // Helper: pastikan kredensial terpasang sebelum memakai Sheets/Drive API.
 export const getGoogleServices = async () => {
 	await getUserOAuthClient();
-	const sheets = google.sheets({ version: "v4", auth: oauth2Client });
-	const drive = google.drive({ version: "v3", auth: oauth2Client });
+	const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+	const drive = google.drive({ version: 'v3', auth: oauth2Client });
 	return { sheets, drive };
 };
 
@@ -68,15 +63,15 @@ export const getGoogleServices = async () => {
  */
 export const uploadBastToDrive = async ({ absoluteFilePath, fileName }) => {
 	try {
-		const fs = await import("fs");
+		const fs = await import('fs');
 		const { drive } = await getGoogleServices();
 
 		// 1. Cari atau buat folder "BAST ARXIVA"
 		let folderId = null;
 		const searchFolder = await drive.files.list({
 			q: "name = 'BAST ARXIVA' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-			fields: "files(id, name)",
-			spaces: "drive",
+			fields: 'files(id, name)',
+			spaces: 'drive',
 		});
 
 		if (searchFolder.data.files && searchFolder.data.files.length > 0) {
@@ -84,10 +79,10 @@ export const uploadBastToDrive = async ({ absoluteFilePath, fileName }) => {
 		} else {
 			const created = await drive.files.create({
 				requestBody: {
-					name: "BAST ARXIVA",
-					mimeType: "application/vnd.google-apps.folder",
+					name: 'BAST ARXIVA',
+					mimeType: 'application/vnd.google-apps.folder',
 				},
-				fields: "id",
+				fields: 'id',
 			});
 			folderId = created.data.id;
 		}
@@ -96,30 +91,29 @@ export const uploadBastToDrive = async ({ absoluteFilePath, fileName }) => {
 		const uploaded = await drive.files.create({
 			requestBody: { name: fileName, parents: folderId ? [folderId] : [] },
 			media: {
-				mimeType: "application/pdf",
+				mimeType: 'application/pdf',
 				body: fs.createReadStream(absoluteFilePath),
 			},
-			fields: "id, webViewLink",
+			fields: 'id, webViewLink',
 		});
 
 		const driveFileId = uploaded.data.id;
 		const driveViewUrl =
-			uploaded.data.webViewLink ||
-			`https://drive.google.com/file/d/${driveFileId}/view`;
+			uploaded.data.webViewLink || `https://drive.google.com/file/d/${driveFileId}/view`;
 
 		// 3. Izin baca publik (best-effort)
 		try {
 			await drive.permissions.create({
 				fileId: driveFileId,
-				requestBody: { role: "reader", type: "anyone" },
+				requestBody: { role: 'reader', type: 'anyone' },
 			});
 		} catch (permErr) {
-			console.warn("Could not set Drive public permission:", permErr.message);
+			console.warn('Could not set Drive public permission:', permErr.message);
 		}
 
 		return { driveFileId, driveViewUrl };
 	} catch (err) {
-		console.error("Error uploading BAST to Google Drive:", err.message);
+		console.error('Error uploading BAST to Google Drive:', err.message);
 		return { driveFileId: null, driveViewUrl: null };
 	}
 };

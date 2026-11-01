@@ -5,11 +5,9 @@ process.env.PRISMA_DATASOURCE_URL =
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
 const { getUsers } = await import('../../src/controllers/user.controller.js');
-const {
-	createRequest,
-	getRequests,
-	getRequestById,
-} = await import('../../src/controllers/request.controller.js');
+const { createRequest } = await import('../../src/modules/requestflow/request.lifecycle.js');
+const { getRequests, getRequestById } =
+	await import('../../src/modules/requestflow/request.query.js');
 
 const RUN = `DST${Date.now().toString(36).toUpperCase()}`;
 
@@ -38,7 +36,9 @@ async function makeUser(username, role, opts = {}) {
 			password: 'x',
 			role,
 			isAktif: opts.isAktif ?? true,
-			profile: { create: { nama: opts.nama || username, email: '-', telepon: '-', alamat: '-' } },
+			profile: {
+				create: { nama: opts.nama || username, email: '-', telepon: '-', alamat: '-' },
+			},
 		},
 	});
 }
@@ -50,9 +50,16 @@ beforeAll(async () => {
 	mitraInactive = await makeUser(`${RUN}-c`, 'MITRA', { isAktif: false });
 
 	category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
+	brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
+	});
 	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
 	});
 });
 
@@ -92,10 +99,17 @@ describe('mitra melihat & memilih user sebagai tujuan request', () => {
 				body: {
 					requesterId: mitraA.id,
 					destinationUserId: mitraB.id,
-					items: [{ materialCategoryId: category.id, brandId: brand.id, modelId: model.id, quantity: 2 }],
+					items: [
+						{
+							materialCategoryId: category.id,
+							brandId: brand.id,
+							modelId: model.id,
+							quantity: 2,
+						},
+					],
 				},
 			},
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(201);
 		expect(res.body.request.destinationUserId).toBe(mitraB.id);
@@ -117,7 +131,7 @@ describe('mitra melihat & memilih user sebagai tujuan request', () => {
 					items: [{ materialCategoryId: category.id, quantity: 1 }],
 				},
 			},
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(400);
 	});
@@ -132,7 +146,7 @@ describe('mitra melihat & memilih user sebagai tujuan request', () => {
 					items: [{ materialCategoryId: category.id, quantity: 1 }],
 				},
 			},
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(400);
 	});
@@ -147,7 +161,7 @@ describe('mitra melihat & memilih user sebagai tujuan request', () => {
 					items: [{ materialCategoryId: category.id, quantity: 1 }],
 				},
 			},
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(400);
 	});

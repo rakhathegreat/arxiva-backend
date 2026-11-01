@@ -6,7 +6,9 @@ process.env.PRISMA_DATASOURCE_URL =
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
 const { updateItem } = await import('../../src/controllers/item.controller.js');
-const { updateRequestStatus, createRequest, signBast } = await import('../../src/controllers/request.controller.js');
+const { updateRequestStatus, createRequest } =
+	await import('../../src/modules/requestflow/request.lifecycle.js');
+const { signBast } = await import('../../src/modules/bastdoc/handlers.js');
 const { receiveItems } = await import('../../src/modules/intake/intake.service.js');
 
 const RUN = `RR${Date.now().toString(36).toUpperCase()}`;
@@ -27,7 +29,9 @@ function mockRes() {
 }
 
 async function seed() {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
+	});
 	mitra = await prisma.user.create({
 		data: {
 			username: `${RUN}-mitra`,
@@ -38,11 +42,20 @@ async function seed() {
 		include: { profile: true },
 	});
 	category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
-	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+	brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
 	});
-	loc = await prisma.location.create({ data: { name: `LOC-${RUN}-rusak`, type: 'BOX', capacity: 500, isActive: true } });
+	model = await prisma.materialModel.create({
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
+	});
+	loc = await prisma.location.create({
+		data: { name: `LOC-${RUN}-rusak`, type: 'BOX', capacity: 500, isActive: true },
+	});
 }
 
 async function makeReturnRequest({ type = 'RETURN_RUSAK', serialized = true } = {}) {
@@ -50,13 +63,15 @@ async function makeReturnRequest({ type = 'RETURN_RUSAK', serialized = true } = 
 		requesterId: mitra.id,
 		notes: 'pengembalian rusak',
 		type,
-		items: [{
-			materialCategoryId: category.id,
-			brandId: brand.id,
-			modelId: model.id,
-			quantity: 1,
-			...(serialized ? { serialNumber: SN('ret') } : {}),
-		}],
+		items: [
+			{
+				materialCategoryId: category.id,
+				brandId: brand.id,
+				modelId: model.id,
+				quantity: 1,
+				...(serialized ? { serialNumber: SN('ret') } : {}),
+			},
+		],
 	};
 	const res = mockRes();
 	await createRequest({ body }, res);
@@ -87,7 +102,9 @@ afterAll(async () => {
 		where: { nama: { startsWith: `CAT-${RUN}` } },
 		select: { id: true },
 	});
-	await prisma.materialModel.deleteMany({ where: { materialCategoryId: { in: cats.map((c) => c.id) } } });
+	await prisma.materialModel.deleteMany({
+		where: { materialCategoryId: { in: cats.map((c) => c.id) } },
+	});
 	await prisma.materialModel.deleteMany({ where: { nama: { startsWith: `MDL-${RUN}` } } });
 	await prisma.brand.deleteMany({ where: { nama: { startsWith: `BRD-${RUN}` } } });
 	await prisma.materialCategory.deleteMany({ where: { nama: { startsWith: `CAT-${RUN}` } } });
@@ -103,7 +120,11 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		// 1. Admin setujui → DISETUJUI + BAST dibuat
 		let res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'DISETUJUI' }, user: { id: admin.id, role: 'ADMIN' } },
+			{
+				params: { id: request.id },
+				body: { status: 'DISETUJUI' },
+				user: { id: admin.id, role: 'ADMIN' },
+			},
 			res,
 		);
 		expect(res.body.request.status).toBe('DISETUJUI');
@@ -115,13 +136,19 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		res = mockRes();
 		await signBast({ params: { id: request.id }, user: { id: mitra.id, role: 'MITRA' } }, res);
 		expect(res.body.isFullySigned).toBe(true);
-		const finalized = await prisma.deliveryDocument.findUnique({ where: { requestId: request.id } });
+		const finalized = await prisma.deliveryDocument.findUnique({
+			where: { requestId: request.id },
+		});
 		expect(finalized.finalFilePath).toBeTruthy();
 
 		// 3. Mitra menyerahkan fisik → SERAH
 		res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'SERAH' }, user: { id: mitra.id, role: 'MITRA' } },
+			{
+				params: { id: request.id },
+				body: { status: 'SERAH' },
+				user: { id: mitra.id, role: 'MITRA' },
+			},
 			res,
 		);
 		expect(res.body.request.status).toBe('SERAH');
@@ -129,24 +156,30 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		// 4. Mitra menginput material rusak terikat pengajuan (wajib utk SELESAI)
 		const results = await receiveItems(
 			{ id: mitra.id, role: 'MITRA', profile: mitra.profile },
-			[{
-				serialNumber: SN('ret'),
-				kondisi: 'Rusak',
-				ticket: `TKT-${RUN}`,
-				catatan: 'rusak terikat pengajuan',
-				kategori: `CAT-${RUN}`,
-				merek: `BRD-${RUN}`,
-				tipe: `MDL-${RUN}`,
-				lokasiPenyimpanan: `LOC-${RUN}-rusak`,
-				requestId: request.id,
-			}],
+			[
+				{
+					serialNumber: SN('ret'),
+					kondisi: 'Rusak',
+					ticket: `TKT-${RUN}`,
+					catatan: 'rusak terikat pengajuan',
+					kategori: `CAT-${RUN}`,
+					merek: `BRD-${RUN}`,
+					tipe: `MDL-${RUN}`,
+					lokasiPenyimpanan: `LOC-${RUN}-rusak`,
+					requestId: request.id,
+				},
+			],
 		);
 		expect(results[0].ok).toBe(true);
 
 		// 5. Admin selesaikan → SELESAI (reconciliation cocok)
 		res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'SELESAI' }, user: { id: admin.id, role: 'ADMIN' } },
+			{
+				params: { id: request.id },
+				body: { status: 'SELESAI' },
+				user: { id: admin.id, role: 'ADMIN' },
+			},
 			res,
 		);
 		expect(res.body.request.status).toBe('SELESAI');
@@ -160,7 +193,9 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		expect(item.createdBy.role).toBe('ADMIN');
 
 		// Mutation terikat requestId
-		const mut = await prisma.itemMutation.findFirst({ where: { itemId: item.id, type: 'RUSAK' } });
+		const mut = await prisma.itemMutation.findFirst({
+			where: { itemId: item.id, type: 'RUSAK' },
+		});
 		expect(mut.requestId).toBe(request.id);
 	}, 30000);
 
@@ -169,21 +204,33 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 
 		let res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'DISETUJUI' }, user: { id: admin.id, role: 'ADMIN' } },
+			{
+				params: { id: request.id },
+				body: { status: 'DISETUJUI' },
+				user: { id: admin.id, role: 'ADMIN' },
+			},
 			res,
 		);
 		res = mockRes();
 		await signBast({ params: { id: request.id }, user: { id: mitra.id, role: 'MITRA' } }, res);
 		res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'SERAH' }, user: { id: mitra.id, role: 'MITRA' } },
+			{
+				params: { id: request.id },
+				body: { status: 'SERAH' },
+				user: { id: mitra.id, role: 'MITRA' },
+			},
 			res,
 		);
 
 		// Tanpa intake terikat → SELESAI harus ditolak
 		res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'SELESAI' }, user: { id: admin.id, role: 'ADMIN' } },
+			{
+				params: { id: request.id },
+				body: { status: 'SELESAI' },
+				user: { id: admin.id, role: 'ADMIN' },
+			},
 			res,
 		);
 		expect(res.body.request).toBeFalsy();
@@ -193,15 +240,17 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		const request = await makeReturnRequest();
 		const results = await receiveItems(
 			{ id: mitra.id, role: 'MITRA', profile: mitra.profile },
-			[{
-				serialNumber: SN('notyet'),
-				kondisi: 'Rusak',
-				ticket: `TKT-${RUN}-n`,
-				kategori: `CAT-${RUN}`,
-				merek: `BRD-${RUN}`,
-				lokasiPenyimpanan: `LOC-${RUN}-rusak`,
-				requestId: request.id,
-			}],
+			[
+				{
+					serialNumber: SN('notyet'),
+					kondisi: 'Rusak',
+					ticket: `TKT-${RUN}-n`,
+					kategori: `CAT-${RUN}`,
+					merek: `BRD-${RUN}`,
+					lokasiPenyimpanan: `LOC-${RUN}-rusak`,
+					requestId: request.id,
+				},
+			],
 		);
 		expect(results[0].ok).toBe(false);
 		expect(results[0].reason).toBe('REQUEST_NOT_APPROVED');
@@ -211,7 +260,11 @@ describe('alur RETURN_RUSAK — pengajuan → setuju → serah → input → sel
 		const request = await makeReturnRequest({ type: 'OUTGOING' });
 		const res = mockRes();
 		await updateRequestStatus(
-			{ params: { id: request.id }, body: { status: 'DISETUJUI' }, user: { id: admin.id, role: 'ADMIN' } },
+			{
+				params: { id: request.id },
+				body: { status: 'DISETUJUI' },
+				user: { id: admin.id, role: 'ADMIN' },
+			},
 			res,
 		);
 		expect(res.statusCode).toBe(400);

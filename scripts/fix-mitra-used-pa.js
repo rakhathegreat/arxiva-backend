@@ -24,7 +24,9 @@ async function fixMitraUsedPa() {
 			paNumber: true,
 			location: { select: { name: true } },
 			model: { select: { brand: { select: { nama: true } } } },
-			createdBy: { select: { role: true, username: true, profile: { select: { nama: true } } } },
+			createdBy: {
+				select: { role: true, username: true, profile: { select: { nama: true } } },
+			},
 			mutations: {
 				select: {
 					id: true,
@@ -56,17 +58,19 @@ async function fixMitraUsedPa() {
 				locationName: i.location?.name || null,
 				brandName: i.model?.brand?.nama || null,
 			},
-		])
+		]),
 	);
 
 	const plan = planUsedPaBackfill(
 		items.map(({ mutations, location, model, createdBy, ...rest }) => rest),
 		mutationsByItem,
 		usersById,
-		{ itemContext }
+		{ itemContext },
 	);
 
-	console.log(`Item eligible (digunakan tanpa PA): ${items.filter((i) => !(i.paNumber || '').trim()).length}`);
+	console.log(
+		`Item eligible (digunakan tanpa PA): ${items.filter((i) => !(i.paNumber || '').trim()).length}`,
+	);
 	console.log(`Akan di-backfill: ${plan.length}`);
 	if (plan.length === 0) {
 		console.log('Tidak ada yang perlu diperbaiki.');

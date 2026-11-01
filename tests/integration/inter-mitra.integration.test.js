@@ -5,7 +5,11 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const { createRequest, updateRequestStatus, scanInterPartnerItems, getRequests, downloadBastPdf } = await import('../../src/controllers/request.controller.js');
+const { createRequest, updateRequestStatus } =
+	await import('../../src/modules/requestflow/request.lifecycle.js');
+const { scanInterPartnerItems } = await import('../../src/modules/requestflow/scan.service.js');
+const { getRequests } = await import('../../src/modules/requestflow/request.query.js');
+const { downloadBastPdf } = await import('../../src/modules/bastdoc/handlers.js');
 
 const RUN = `IM${Date.now().toString(36).toUpperCase()}`;
 const SN = (n) => `SN-${RUN}-${n}`;
@@ -53,7 +57,9 @@ function mockBastRes() {
 }
 
 async function seed() {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
+	});
 	requester = await prisma.user.create({
 		data: {
 			username: `${RUN}-req`,
@@ -73,11 +79,20 @@ async function seed() {
 		include: { profile: true },
 	});
 	category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
-	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+	brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
 	});
-	providerLoc = await prisma.location.create({ data: { name: `LOC-${RUN}-prov`, type: 'BOX', capacity: 500, isActive: true } });
+	model = await prisma.materialModel.create({
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
+	});
+	providerLoc = await prisma.location.create({
+		data: { name: `LOC-${RUN}-prov`, type: 'BOX', capacity: 500, isActive: true },
+	});
 	await prisma.userLocation.create({ data: { userId: provider.id, locationId: providerLoc.id } });
 
 	await prisma.item.createMany({
@@ -112,7 +127,11 @@ async function makeRequest() {
 async function approve(request, by = admin) {
 	const res = mockRes();
 	await updateRequestStatus(
-		{ params: { id: request.id }, body: { status: 'DISETUJUI' }, user: { id: by.id, role: by.role } },
+		{
+			params: { id: request.id },
+			body: { status: 'DISETUJUI' },
+			user: { id: by.id, role: by.role },
+		},
 		res,
 	);
 	return res;
@@ -123,20 +142,26 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-	await prisma.requestAllocation.deleteMany({ where: { requestItem: { request: { requesterId: requester.id } } } });
+	await prisma.requestAllocation.deleteMany({
+		where: { requestItem: { request: { requesterId: requester.id } } },
+	});
 	await prisma.deliveryDocument.deleteMany({ where: { request: { requesterId: requester.id } } });
 	await prisma.itemMutation.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
 	await prisma.requestItem.deleteMany({ where: { request: { requesterId: requester.id } } });
 	await prisma.request.deleteMany({ where: { requesterId: requester.id } });
 	await prisma.item.deleteMany({ where: { serialNumber: { startsWith: `SN-${RUN}` } } });
-	await prisma.userLocation.deleteMany({ where: { userId: { in: [requester.id, provider.id] } } });
+	await prisma.userLocation.deleteMany({
+		where: { userId: { in: [requester.id, provider.id] } },
+	});
 	await prisma.location.deleteMany({ where: { name: { startsWith: `LOC-${RUN}` } } });
 	await prisma.userProfile.deleteMany({ where: { user: { username: { startsWith: RUN } } } });
 	const cats = await prisma.materialCategory.findMany({
 		where: { nama: { startsWith: `CAT-${RUN}` } },
 		select: { id: true },
 	});
-	await prisma.materialModel.deleteMany({ where: { materialCategoryId: { in: cats.map((c) => c.id) } } });
+	await prisma.materialModel.deleteMany({
+		where: { materialCategoryId: { in: cats.map((c) => c.id) } },
+	});
 	await prisma.materialModel.deleteMany({ where: { nama: { startsWith: `MDL-${RUN}` } } });
 	await prisma.brand.deleteMany({ where: { nama: { startsWith: `BRD-${RUN}` } } });
 	await prisma.materialCategory.deleteMany({ where: { nama: { startsWith: `CAT-${RUN}` } } });
@@ -210,7 +235,9 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 		}
 
 		// Ledger KELUAR terikat request
-		const mutations = await prisma.itemMutation.findMany({ where: { requestId: request.id, type: 'KELUAR' } });
+		const mutations = await prisma.itemMutation.findMany({
+			where: { requestId: request.id, type: 'KELUAR' },
+		});
 		expect(mutations.length).toBe(2);
 
 		const riFinal = await prisma.requestItem.findUnique({ where: { id: ri.id } });
@@ -307,7 +334,14 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 		const body = {
 			requesterId: requester.id,
 			notes: 'keluar biasa',
-			items: [{ materialCategoryId: category.id, brandId: brand.id, modelId: model.id, quantity: 1 }],
+			items: [
+				{
+					materialCategoryId: category.id,
+					brandId: brand.id,
+					modelId: model.id,
+					quantity: 1,
+				},
+			],
 		};
 		const createRes = mockRes();
 		await createRequest({ body }, createRes);
@@ -332,7 +366,14 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 				body: {
 					requesterId: requester.id,
 					notes: 'keluar ke KP',
-					items: [{ materialCategoryId: category.id, brandId: brand.id, modelId: model.id, quantity: 1 }],
+					items: [
+						{
+							materialCategoryId: category.id,
+							brandId: brand.id,
+							modelId: model.id,
+							quantity: 1,
+						},
+					],
 				},
 			},
 			kpRes,
@@ -364,7 +405,10 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 		expect((await approve(request)).body.request.status).toBe('DISETUJUI');
 
 		const res = mockBastRes();
-		await downloadBastPdf({ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } }, res);
+		await downloadBastPdf(
+			{ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } },
+			res,
+		);
 		// Gate status lintas (bukan 400/403) → draft BAST bisa diunduh saat DISETUJUI
 		expect(res.statusCode === null || [200].includes(res.statusCode)).toBe(true);
 	}, 20000);
@@ -372,7 +416,10 @@ describe('alur INTER_MITRA — antar mitra: minta → setuju admin → scan pemb
 	it('BAST antar mitra belum tersedia saat MENUNGGU', async () => {
 		const request = await makeRequest();
 		const res = mockBastRes();
-		await downloadBastPdf({ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } }, res);
+		await downloadBastPdf(
+			{ params: { id: request.id }, user: { id: admin.id, role: 'ADMIN' } },
+			res,
+		);
 		expect(res.statusCode).toBe(400);
 	}, 20000);
 });

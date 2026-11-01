@@ -1,11 +1,11 @@
 import express from 'express';
 import {
-    getLocations,
-    createLocation,
-    updateLocation,
-    toggleLocation,
-    deleteLocation,
-    migrateLocationItems
+	getLocations,
+	createLocation,
+	updateLocation,
+	toggleLocation,
+	deleteLocation,
+	migrateLocationItems,
 } from '../controllers/location.controller.js';
 import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 

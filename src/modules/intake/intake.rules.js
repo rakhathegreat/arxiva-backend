@@ -26,7 +26,10 @@ export const REJECT = {
 
 export const CONDITIONS = ['Baru', 'Dismantle', 'Rusak'];
 
-export const normalizeSn = (code) => String(code ?? '').trim().toUpperCase();
+export const normalizeSn = (code) =>
+	String(code ?? '')
+		.trim()
+		.toUpperCase();
 
 const normalizeOwner = (owner) => (owner || '').trim().toLocaleLowerCase('id-ID');
 
@@ -61,14 +64,20 @@ export function isMitraInboundAllowed(existingLike, mitraName) {
 	const owner = normalizeOwner(existingLike.ownerDisplay);
 	const statusDisplay = String(
 		existingLike.statusEnum === 'digunakan'
-			? (existingLike.paNumber ? 'Digunakan' : 'Terdistribusi')
+			? existingLike.paNumber
+				? 'Digunakan'
+				: 'Terdistribusi'
 			: existingLike.statusEnum === 'rusak'
 				? 'Rusak'
 				: existingLike.statusEnum === 'hilang'
 					? 'Hilang'
-					: 'Tersedia'
-	).trim().toLocaleLowerCase('id-ID');
-	const locName = String(existingLike.locationName || '').trim().toLocaleLowerCase('id-ID');
+					: 'Tersedia',
+	)
+		.trim()
+		.toLocaleLowerCase('id-ID');
+	const locName = String(existingLike.locationName || '')
+		.trim()
+		.toLocaleLowerCase('id-ID');
 
 	const isOutbound =
 		statusDisplay === 'keluar' ||

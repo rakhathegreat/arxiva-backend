@@ -96,7 +96,7 @@ export function makeMasterDataCrud(cfg) {
 		async list(req, res) {
 			try {
 				const query = req.query || {};
-				const search = query.search ? String(query.search).trim() : "";
+				const search = query.search ? String(query.search).trim() : '';
 				const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
 				let where = search && cfg.searchWhere ? cfg.searchWhere(search) : undefined;
 				if (cfg.extendWhere) where = cfg.extendWhere(req, where) ?? where;

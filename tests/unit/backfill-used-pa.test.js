@@ -80,8 +80,12 @@ describe('planUsedPaBackfill', () => {
 		];
 		const plan = planUsedPaBackfill(
 			items,
-			{ it1: [baseMutation({ destinationLocationName: 'PA-1' })], it2: [baseMutation()], it3: [baseMutation()] },
-			{ 'u-mitra': MITRA }
+			{
+				it1: [baseMutation({ destinationLocationName: 'PA-1' })],
+				it2: [baseMutation()],
+				it3: [baseMutation()],
+			},
+			{ 'u-mitra': MITRA },
 		);
 		expect(plan).toHaveLength(0);
 	});
@@ -91,7 +95,7 @@ describe('planUsedPaBackfill', () => {
 		const plan = planUsedPaBackfill(
 			items,
 			{ it1: [baseMutation({ destinationLocationName: 'PA-LAIN' })] },
-			{ 'u-mitra': MITRA }
+			{ 'u-mitra': MITRA },
 		);
 		expect(plan).toHaveLength(0);
 	});
@@ -107,7 +111,9 @@ describe('planUsedPaBackfill', () => {
 
 	it('jangan salah tangkap mutasi yang dikerjakan ADMIN (bukan pemakaian mitra)', () => {
 		const items = [baseItem({ id: 'it1' })];
-		const mutations = { it1: [baseMutation({ userId: 'u-admin', destinationLocationName: 'PA-X' })] };
+		const mutations = {
+			it1: [baseMutation({ userId: 'u-admin', destinationLocationName: 'PA-X' })],
+		};
 		const plan = planUsedPaBackfill(items, mutations, { 'u-admin': ADMIN, 'u-mitra': MITRA });
 		expect(plan).toHaveLength(0);
 	});
@@ -117,7 +123,11 @@ describe('planUsedPaBackfill', () => {
 		const mutations = {
 			it1: [
 				baseMutation({ requestId: 'req-1', destinationLocationName: 'PA-DISTRI' }),
-				baseMutation({ requestId: null, destinationLocationName: 'PA-PAKAI', createdAt: '2026-08-03T00:00:00.000Z' }),
+				baseMutation({
+					requestId: null,
+					destinationLocationName: 'PA-PAKAI',
+					createdAt: '2026-08-03T00:00:00.000Z',
+				}),
 			],
 		};
 		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA });
@@ -128,8 +138,14 @@ describe('planUsedPaBackfill', () => {
 		const items = [baseItem({ id: 'it1' })];
 		const mutations = {
 			it1: [
-				baseMutation({ destinationLocationName: 'PA-LAMA', createdAt: '2026-08-01T00:00:00.000Z' }),
-				baseMutation({ destinationLocationName: 'PA-BARU', createdAt: '2026-08-10T00:00:00.000Z' }),
+				baseMutation({
+					destinationLocationName: 'PA-LAMA',
+					createdAt: '2026-08-01T00:00:00.000Z',
+				}),
+				baseMutation({
+					destinationLocationName: 'PA-BARU',
+					createdAt: '2026-08-10T00:00:00.000Z',
+				}),
 			],
 		};
 		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA });
@@ -147,36 +163,56 @@ describe('planUsedPaBackfill', () => {
 		const mutations = {
 			it1: [baseMutation({ destinationLocationName: 'PT TZU' })],
 		};
-		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA }, {
-			itemContext: { it1: { ownerName: 'PT TZU' } },
-		});
+		const plan = planUsedPaBackfill(
+			items,
+			mutations,
+			{ 'u-mitra': MITRA },
+			{
+				itemContext: { it1: { ownerName: 'PT TZU' } },
+			},
+		);
 		expect(plan).toHaveLength(0);
 	});
 
 	it('TOLAK kandidat PA yang berupa nama lokasi', () => {
 		const items = [baseItem({ id: 'it1' })];
 		const mutations = { it1: [baseMutation({ destinationLocationName: 'Gudang Mitra A' })] };
-		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA }, {
-			itemContext: { it1: { locationName: 'Gudang Mitra A' } },
-		});
+		const plan = planUsedPaBackfill(
+			items,
+			mutations,
+			{ 'u-mitra': MITRA },
+			{
+				itemContext: { it1: { locationName: 'Gudang Mitra A' } },
+			},
+		);
 		expect(plan).toHaveLength(0);
 	});
 
 	it('TOLAK kandidat PA yang berupa nama brand', () => {
 		const items = [baseItem({ id: 'it1' })];
 		const mutations = { it1: [baseMutation({ destinationLocationName: 'ZTE' })] };
-		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA }, {
-			itemContext: { it1: { brandName: 'ZTE' } },
-		});
+		const plan = planUsedPaBackfill(
+			items,
+			mutations,
+			{ 'u-mitra': MITRA },
+			{
+				itemContext: { it1: { brandName: 'ZTE' } },
+			},
+		);
 		expect(plan).toHaveLength(0);
 	});
 
 	it('guard nama entitas tidak menghalangi PA asli meski mirip', () => {
 		const items = [baseItem({ id: 'it1' })];
 		const mutations = { it1: [baseMutation({ destinationLocationName: 'PA-123' })] };
-		const plan = planUsedPaBackfill(items, mutations, { 'u-mitra': MITRA }, {
-			itemContext: { it1: { ownerName: 'PT TZU', locationName: 'Digunakan' } },
-		});
+		const plan = planUsedPaBackfill(
+			items,
+			mutations,
+			{ 'u-mitra': MITRA },
+			{
+				itemContext: { it1: { ownerName: 'PT TZU', locationName: 'Digunakan' } },
+			},
+		);
 		expect(plan[0].paNumber).toBe('PA-123');
 	});
 });

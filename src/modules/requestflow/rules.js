@@ -76,7 +76,7 @@ export function validateTransition(
 	requesterId,
 	userId,
 	requestType = 'OUTGOING',
-	providerPartnerId = null
+	providerPartnerId = null,
 ) {
 	if (!REQUEST_STATUSES.includes(to)) {
 		return { ok: false, httpStatus: 400, message: 'Invalid status' };
@@ -85,7 +85,10 @@ export function validateTransition(
 	const transitions = TRANSITIONS_BY_TYPE[requestType] ?? ALLOWED_TRANSITIONS_OUTGOING;
 
 	// State per-tipe: DISETUJUI/SERAH hanya bermakna untuk RETURN_RUSAK/INTER_MITRA.
-	if (!['RETURN_RUSAK', 'INTER_MITRA'].includes(requestType) && (to === 'DISETUJUI' || to === 'SERAH')) {
+	if (
+		!['RETURN_RUSAK', 'INTER_MITRA'].includes(requestType) &&
+		(to === 'DISETUJUI' || to === 'SERAH')
+	) {
 		return {
 			ok: false,
 			httpStatus: 400,
@@ -112,14 +115,24 @@ export function validateTransition(
 				message: 'Hanya mitra pemilik yang dapat menandai penyerahan material rusak',
 			};
 		}
-		if (to === 'SERAH' && requestType === 'RETURN_RUSAK' && role === 'MITRA' && userId !== requesterId) {
+		if (
+			to === 'SERAH' &&
+			requestType === 'RETURN_RUSAK' &&
+			role === 'MITRA' &&
+			userId !== requesterId
+		) {
 			return {
 				ok: false,
 				httpStatus: 403,
 				message: 'Hanya mitra pemilik yang dapat menandai penyerahan material rusak',
 			};
 		}
-		if (to === 'SERAH' && requestType === 'INTER_MITRA' && role !== 'ADMIN' && userId !== providerPartnerId) {
+		if (
+			to === 'SERAH' &&
+			requestType === 'INTER_MITRA' &&
+			role !== 'ADMIN' &&
+			userId !== providerPartnerId
+		) {
 			return {
 				ok: false,
 				httpStatus: 403,
@@ -133,7 +146,12 @@ export function validateTransition(
 				message: 'Hanya admin yang dapat menyelesaikan pengajuan material rusak',
 			};
 		}
-		if (to === 'SELESAI' && requestType === 'INTER_MITRA' && role !== 'ADMIN' && userId !== requesterId) {
+		if (
+			to === 'SELESAI' &&
+			requestType === 'INTER_MITRA' &&
+			role !== 'ADMIN' &&
+			userId !== requesterId
+		) {
 			return {
 				ok: false,
 				httpStatus: 403,
@@ -166,4 +184,25 @@ export function validateTransition(
 	}
 
 	return { ok: true };
+}
+
+/**
+ * Nomor request berikutnya (`REQ-YYYY-NNNN`) dari nomor terakhir tahun berjalan.
+ *
+ * Menggantikan `count()+1` yang race-prone dan tidak reset per tahun. Pola sama
+ * dengan `intake.rules.nextInboundNumber`; pemanggil mengulang saat bentrok
+ * unique constraint.
+ *
+ * @param {string|null|undefined} lastNumber nomor terakhir (prefix tahun sama), bila ada
+ * @param {Date} [now]
+ * @returns {string}
+ */
+export function nextRequestNumber(lastNumber, now = new Date()) {
+	const prefix = `REQ-${now.getFullYear()}-`;
+	let seq = 1;
+	if (lastNumber && lastNumber.startsWith(prefix)) {
+		const parsed = parseInt(lastNumber.slice(prefix.length), 10);
+		if (Number.isFinite(parsed)) seq = parsed + 1;
+	}
+	return `${prefix}${String(seq).padStart(4, '0')}`;
 }

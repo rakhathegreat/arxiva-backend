@@ -1,22 +1,35 @@
-import bcrypt from "bcrypt";
-import prisma from "../shared/prisma.js";
+import bcrypt from 'bcrypt';
+import prisma from '../shared/prisma.js';
+import { ensurePartnerLocation } from '../modules/requestflow/requestflow.service.js';
 
 // GET /users
 export const getUsers = async (req, res) => {
 	try {
 		// Mitra hanya boleh melihat sesama mitra yang aktif (daftar tujuan peminjaman).
 		// Admin melihat semua user.
-		const isAdmin = req.user?.role === "ADMIN";
+		const isAdmin = req.user?.role === 'ADMIN';
 		const query = req.query || {};
-		const search = query.search ? String(query.search).trim() : "";
+		const search = query.search ? String(query.search).trim() : '';
 		const limit = query.limit !== undefined ? parseInt(query.limit, 10) : null;
 		const where = isAdmin
 			? search
-				? { OR: [{ username: { contains: search } }, { profile: { is: { nama: { contains: search } } } }] }
+				? {
+						OR: [
+							{ username: { contains: search } },
+							{ profile: { is: { nama: { contains: search } } } },
+						],
+					}
 				: {}
 			: search
-				? { role: "MITRA", isAktif: true, OR: [{ username: { contains: search } }, { profile: { is: { nama: { contains: search } } } }] }
-				: { role: "MITRA", isAktif: true };
+				? {
+						role: 'MITRA',
+						isAktif: true,
+						OR: [
+							{ username: { contains: search } },
+							{ profile: { is: { nama: { contains: search } } } },
+						],
+					}
+				: { role: 'MITRA', isAktif: true };
 
 		const users = await prisma.user.findMany({
 			where,
@@ -29,13 +42,13 @@ export const getUsers = async (req, res) => {
 				updatedAt: true,
 				profile: true,
 			},
-			orderBy: { createdAt: "desc" },
+			orderBy: { createdAt: 'desc' },
 			...(limit && Number.isFinite(limit) && limit > 0 ? { take: limit } : {}),
 		});
 		res.json(users);
 	} catch (error) {
-		console.error("Error in getUsers:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error in getUsers:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -63,9 +76,7 @@ export const createUser = async (req, res) => {
 		} = req.body;
 
 		if (!username || !password) {
-			return res
-				.status(400)
-				.json({ message: "Username and password are required" });
+			return res.status(400).json({ message: 'Username and password are required' });
 		}
 
 		const existingUser = await prisma.user.findUnique({
@@ -73,18 +84,14 @@ export const createUser = async (req, res) => {
 		});
 
 		if (existingUser) {
-			return res.status(400).json({ message: "Username already exists" });
+			return res.status(400).json({ message: 'Username already exists' });
 		}
 
 		const hashedPassword = await bcrypt.hash(password, 10);
 		const activeStatus =
-			isActive !== undefined
-				? isActive
-				: isAktif !== undefined
-					? isAktif
-					: true;
+			isActive !== undefined ? isActive : isAktif !== undefined ? isAktif : true;
 
-		const userRole = role || "MITRA";
+		const userRole = role || 'MITRA';
 		const profileNama = name || nama || username;
 
 		// Gunakan transaksi agar user, profile, location, dan linknya terbuat secara atomic
@@ -98,9 +105,9 @@ export const createUser = async (req, res) => {
 					profile: {
 						create: {
 							nama: profileNama,
-							email: email || "-",
-							telepon: phone || telepon || "-",
-							alamat: address || alamat || "-",
+							email: email || '-',
+							telepon: phone || telepon || '-',
+							alamat: address || alamat || '-',
 							code: code || null,
 							partnerType: partnerType || null,
 							contactPerson: contactPerson || null,
@@ -120,42 +127,28 @@ export const createUser = async (req, res) => {
 			});
 
 			// Jika role adalah MITRA, otomatis buat lokasi partner dan relasikan
-			if (userRole === "MITRA") {
-				const partnerLocation = await tx.location.create({
-					data: {
-						name: profileNama,
-						type: "PARTNER",
-						capacity: 999999, // Kapasitas besar untuk lokasi logis partner
-					},
-				});
-
-				await tx.userLocation.create({
-					data: {
-						userId: user.id,
-						locationId: partnerLocation.id,
-					},
-				});
+			// — satu pintu requestflow.ensurePartnerLocation (D9).
+			if (userRole === 'MITRA') {
+				await ensurePartnerLocation(tx, user.id);
 			}
 
 			return user;
 		});
 
 		res.status(201).json({
-			message: "User created successfully",
+			message: 'User created successfully',
 			user: newUser,
 		});
 	} catch (error) {
-		console.error("Error in createUser:", error);
-		if (error.code === "P2002") {
-			return res.status(400).json({ message: "Username already exists" });
+		console.error('Error in createUser:', error);
+		if (error.code === 'P2002') {
+			return res.status(400).json({ message: 'Username already exists' });
 		}
-		res
-			.status(500)
-			.json({
-				message: "Internal server error",
-				error: error.message,
-				stack: error.stack,
-			});
+		res.status(500).json({
+			message: 'Internal server error',
+			error: error.message,
+			stack: error.stack,
+		});
 	}
 };
 
@@ -183,10 +176,10 @@ export const updateUser = async (req, res) => {
 			picSignatureUrl,
 		} = req.body;
 
-		if (req.user.role !== "ADMIN" && req.user.id !== id) {
+		if (req.user.role !== 'ADMIN' && req.user.id !== id) {
 			return res
 				.status(403)
-				.json({ message: "Forbidden: You can only update your own profile" });
+				.json({ message: 'Forbidden: You can only update your own profile' });
 		}
 
 		const user = await prisma.user.findUnique({
@@ -194,29 +187,23 @@ export const updateUser = async (req, res) => {
 			include: { profile: true },
 		});
 		if (!user) {
-			return res.status(404).json({ message: "User not found" });
+			return res.status(404).json({ message: 'User not found' });
 		}
 
 		// Username adalah kredensial login — tidak boleh diubah setelah dibuat.
 		if (username && username !== user.username) {
-			return res.status(400).json({ message: "Username cannot be changed" });
+			return res.status(400).json({ message: 'Username cannot be changed' });
 		}
 
 		// Admin tidak boleh menonaktifkan akunnya sendiri.
 		const requestedActive =
-			isActive !== undefined
-				? isActive
-				: isAktif !== undefined
-					? isAktif
-					: undefined;
+			isActive !== undefined ? isActive : isAktif !== undefined ? isAktif : undefined;
 		if (requestedActive === false && req.user.id === id) {
-			return res
-				.status(403)
-				.json({ message: "Cannot deactivate your own account" });
+			return res.status(403).json({ message: 'Cannot deactivate your own account' });
 		}
 
 		const updateData = {};
-		if (req.user.role === "ADMIN") {
+		if (req.user.role === 'ADMIN') {
 			if (role) updateData.role = role;
 			if (requestedActive !== undefined) updateData.isAktif = requestedActive;
 		}
@@ -226,19 +213,15 @@ export const updateUser = async (req, res) => {
 		}
 
 		const profileData = {};
-		if (name !== undefined || nama !== undefined)
-			profileData.nama = name || nama;
+		if (name !== undefined || nama !== undefined) profileData.nama = name || nama;
 		if (email !== undefined) profileData.email = email;
-		if (phone !== undefined || telepon !== undefined)
-			profileData.telepon = phone || telepon;
-		if (address !== undefined || alamat !== undefined)
-			profileData.alamat = address || alamat;
+		if (phone !== undefined || telepon !== undefined) profileData.telepon = phone || telepon;
+		if (address !== undefined || alamat !== undefined) profileData.alamat = address || alamat;
 		if (code !== undefined) profileData.code = code;
 		if (partnerType !== undefined) profileData.partnerType = partnerType;
 		if (contactPerson !== undefined) profileData.contactPerson = contactPerson;
 		if (picName !== undefined) profileData.picName = picName;
-		if (picSignatureUrl !== undefined)
-			profileData.picSignatureUrl = picSignatureUrl;
+		if (picSignatureUrl !== undefined) profileData.picSignatureUrl = picSignatureUrl;
 
 		if (Object.keys(profileData).length > 0) {
 			if (user.profile) {
@@ -248,10 +231,10 @@ export const updateUser = async (req, res) => {
 			} else {
 				updateData.profile = {
 					create: {
-						nama: profileData.nama || username || "-",
-						email: profileData.email || "-",
-						telepon: profileData.telepon || "-",
-						alamat: profileData.alamat || "-",
+						nama: profileData.nama || username || '-',
+						email: profileData.email || '-',
+						telepon: profileData.telepon || '-',
+						alamat: profileData.alamat || '-',
 						code: profileData.code || null,
 						partnerType: profileData.partnerType || null,
 						contactPerson: profileData.contactPerson || null,
@@ -265,7 +248,7 @@ export const updateUser = async (req, res) => {
 		// Simetri dengan createUser: jika role diubah menjadi MITRA dan user
 		// belum punya lokasi PARTNER, buatkan agar ia bisa menerima material.
 		const newRole = updateData.role;
-		const becomesMitra = newRole === "MITRA" && user.role !== "MITRA";
+		const becomesMitra = newRole === 'MITRA' && user.role !== 'MITRA';
 		const updatedUser = await prisma.$transaction(async (tx) => {
 			const result = await tx.user.update({
 				where: { id },
@@ -281,37 +264,24 @@ export const updateUser = async (req, res) => {
 			});
 
 			if (becomesMitra) {
-				const existingPartnerLocation = await tx.userLocation.findFirst({
-					where: { userId: id, location: { type: "PARTNER" } },
-				});
-
-				if (!existingPartnerLocation) {
-					const partnerLocation = await tx.location.create({
-						data: {
-							name: user.profile?.nama || result.username,
-							type: "PARTNER",
-							capacity: 999999, // Kapasitas besar untuk lokasi logis partner
-						},
-					});
-					await tx.userLocation.create({
-						data: { userId: id, locationId: partnerLocation.id },
-					});
-				}
+				// Satu pintu requestflow.ensurePartnerLocation — idempoten,
+				// melewati pembuatan bila lokasi sudah ada.
+				await ensurePartnerLocation(tx, id);
 			}
 
 			return result;
 		});
 
 		res.json({
-			message: "User updated successfully",
+			message: 'User updated successfully',
 			user: updatedUser,
 		});
 	} catch (error) {
-		console.error("Error in updateUser:", error);
-		if (error.code === "P2002") {
-			return res.status(400).json({ message: "Username already exists" });
+		console.error('Error in updateUser:', error);
+		if (error.code === 'P2002') {
+			return res.status(400).json({ message: 'Username already exists' });
 		}
-		res.status(500).json({ message: "Internal server error" });
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -321,9 +291,7 @@ export const deleteUser = async (req, res) => {
 		const { id } = req.params;
 
 		if (req.user && id === req.user.id) {
-			return res
-				.status(403)
-				.json({ message: "Cannot delete your own account" });
+			return res.status(403).json({ message: 'Cannot delete your own account' });
 		}
 
 		const user = await prisma.user.findUnique({
@@ -331,7 +299,7 @@ export const deleteUser = async (req, res) => {
 			include: { profile: true },
 		});
 		if (!user) {
-			return res.status(404).json({ message: "User not found" });
+			return res.status(404).json({ message: 'User not found' });
 		}
 
 		if (user.profile) {
@@ -342,9 +310,9 @@ export const deleteUser = async (req, res) => {
 			where: { id },
 		});
 
-		res.json({ message: "User deleted successfully" });
+		res.json({ message: 'User deleted successfully' });
 	} catch (error) {
-		console.error("Error in deleteUser:", error);
-		res.status(500).json({ message: "Internal server error" });
+		console.error('Error in deleteUser:', error);
+		res.status(500).json({ message: 'Internal server error' });
 	}
 };

@@ -29,21 +29,77 @@ const items = [
 
 const mutations = {
 	it1: [
-		{ id: 'm1', type: 'MASUK', requestId: null, userId: 'u-admin', paNumber: '', destinationLocationName: 'Inbound', createdAt: '2026-07-01T00:00:00.000Z' },
-		{ id: 'm2', type: 'KELUAR', requestId: null, userId: 'u-mitra-a', paNumber: 'OUT-20260801-0001', destinationLocationName: 'PA-00123', createdAt: '2026-08-01T00:00:00.000Z' },
+		{
+			id: 'm1',
+			type: 'MASUK',
+			requestId: null,
+			userId: 'u-admin',
+			paNumber: '',
+			destinationLocationName: 'Inbound',
+			createdAt: '2026-07-01T00:00:00.000Z',
+		},
+		{
+			id: 'm2',
+			type: 'KELUAR',
+			requestId: null,
+			userId: 'u-mitra-a',
+			paNumber: 'OUT-20260801-0001',
+			destinationLocationName: 'PA-00123',
+			createdAt: '2026-08-01T00:00:00.000Z',
+		},
 	],
 	// it2: pemakaian mitra tapi tujuan/PA kosong → tak bisa disimpulkan
 	it2: [
-		{ id: 'm3', type: 'MASUK', requestId: null, userId: 'u-admin', paNumber: '', destinationLocationName: 'Inbound', createdAt: '2026-07-10T00:00:00.000Z' },
-		{ id: 'm4', type: 'KELUAR', requestId: null, userId: 'u-mitra-a', paNumber: 'OUT-20260810-0002', destinationLocationName: '', createdAt: '2026-08-10T00:00:00.000Z' },
+		{
+			id: 'm3',
+			type: 'MASUK',
+			requestId: null,
+			userId: 'u-admin',
+			paNumber: '',
+			destinationLocationName: 'Inbound',
+			createdAt: '2026-07-10T00:00:00.000Z',
+		},
+		{
+			id: 'm4',
+			type: 'KELUAR',
+			requestId: null,
+			userId: 'u-mitra-a',
+			paNumber: 'OUT-20260810-0002',
+			destinationLocationName: '',
+			createdAt: '2026-08-10T00:00:00.000Z',
+		},
 	],
 	it4: [
-		{ id: 'm5', type: 'KELUAR', requestId: 'req-100', userId: 'u-admin', paNumber: '', destinationLocationName: 'Gudang Mitra A', createdAt: '2026-08-02T00:00:00.000Z' },
+		{
+			id: 'm5',
+			type: 'KELUAR',
+			requestId: 'req-100',
+			userId: 'u-admin',
+			paNumber: '',
+			destinationLocationName: 'Gudang Mitra A',
+			createdAt: '2026-08-02T00:00:00.000Z',
+		},
 	],
 	// it6: tujuan = nama mitra (bukan PA) → harus ditolak oleh guard
 	it6: [
-		{ id: 'm6', type: 'MASUK', requestId: null, userId: 'u-admin', paNumber: '', destinationLocationName: 'Inbound', createdAt: '2026-08-05T00:00:00.000Z' },
-		{ id: 'm7', type: 'KELUAR', requestId: null, userId: 'u-mitra-a', paNumber: 'OUT-20260904-0001', destinationLocationName: 'PT TZU', createdAt: '2026-09-04T00:00:00.000Z' },
+		{
+			id: 'm6',
+			type: 'MASUK',
+			requestId: null,
+			userId: 'u-admin',
+			paNumber: '',
+			destinationLocationName: 'Inbound',
+			createdAt: '2026-08-05T00:00:00.000Z',
+		},
+		{
+			id: 'm7',
+			type: 'KELUAR',
+			requestId: null,
+			userId: 'u-mitra-a',
+			paNumber: 'OUT-20260904-0001',
+			destinationLocationName: 'PT TZU',
+			createdAt: '2026-09-04T00:00:00.000Z',
+		},
 	],
 };
 
@@ -65,7 +121,9 @@ for (const item of items) {
 	const before = enumToDisplay(item.status, item.paNumber);
 	const backfill = plan.find((p) => p.item.id === item.id);
 	const after = backfill ? enumToDisplay(item.status, backfill.paNumber) : before;
-	const action = backfill ? `→ ${after}  [isi PA: ${backfill.paNumber}]` : `→ ${after}  (tidak berubah)`;
+	const action = backfill
+		? `→ ${after}  [isi PA: ${backfill.paNumber}]`
+		: `→ ${after}  (tidak berubah)`;
 	console.log(`${item.serialNumber.padEnd(10)} | ${before.padEnd(14)} | ${action}`);
 }
 

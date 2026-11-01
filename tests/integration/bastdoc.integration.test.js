@@ -4,16 +4,16 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const {
-	ensureDeliveryDocument,
-	finalizeDeliveryDocument,
-} = await import('../../src/modules/bastdoc/service.js');
+const { ensureDeliveryDocument, finalizeDeliveryDocument } =
+	await import('../../src/modules/bastdoc/service.js');
 
 const RUN = `BD${Date.now().toString(36).toUpperCase()}`;
 let admin, mitra, request;
 
 beforeAll(async () => {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
+	});
 	mitra = await prisma.user.create({
 		data: {
 			username: `${RUN}-mitra`,

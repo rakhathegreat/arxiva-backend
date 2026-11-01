@@ -1,5 +1,15 @@
 import express from 'express';
-import { getRequests, getRequestById, createRequest, updateRequestStatus, allocateItems, downloadBast, downloadBastPdf, downloadBastDraftPdf, downloadBastSignedPdf, signBast, scanInterPartnerItems } from '../controllers/request.controller.js';
+import { getRequests, getRequestById } from '../modules/requestflow/request.query.js';
+import { createRequest, updateRequestStatus } from '../modules/requestflow/request.lifecycle.js';
+import { allocateItems } from '../modules/requestflow/allocation.service.js';
+import { scanInterPartnerItems } from '../modules/requestflow/scan.service.js';
+import {
+	downloadBast,
+	downloadBastPdf,
+	downloadBastDraftPdf,
+	downloadBastSignedPdf,
+	signBast,
+} from '../modules/bastdoc/handlers.js';
 import { authMiddleware, roleMiddleware } from '../shared/middlewares/auth.middleware.js';
 
 const router = express.Router();

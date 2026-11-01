@@ -2,7 +2,9 @@ import prisma from '../../shared/prisma.js';
 import { makeMasterDataCrud } from './masterdata.service.js';
 
 const generateModelCode = (nama) =>
-	nama.replace(/\s+/g, '-').substring(0, 10).toUpperCase() + '-' + Math.floor(Math.random() * 10000);
+	nama.replace(/\s+/g, '-').substring(0, 10).toUpperCase() +
+	'-' +
+	Math.floor(Math.random() * 10000);
 
 // ─── Kategori Material ───────────────────────────────────────────────────────
 export const categoryHandlers = makeMasterDataCrud({
@@ -35,7 +37,10 @@ async function brandUniqueViolation(body, excludeId = null) {
 	const existing = await prisma.brand.findFirst({
 		where: {
 			...(excludeId ? { id: { not: excludeId } } : {}),
-			OR: [...(nama ? [{ nama }] : []), ...(body.identifier ? [{ identifier: body.identifier }] : [])],
+			OR: [
+				...(nama ? [{ nama }] : []),
+				...(body.identifier ? [{ identifier: body.identifier }] : []),
+			],
 		},
 	});
 	return existing ? { status: 400, message: 'Brand name or identifier already exists' } : null;
@@ -46,10 +51,7 @@ export const brandHandlers = makeMasterDataCrud({
 	label: 'Brand',
 	responseKey: 'brand',
 	searchWhere: (q) => ({
-		OR: [
-			{ nama: { contains: q } },
-			{ identifier: { contains: q } },
-		],
+		OR: [{ nama: { contains: q } }, { identifier: { contains: q } }],
 	}),
 	listInclude: { models: { include: { materialCategory: true } } },
 	getInclude: { models: { include: { materialCategory: true } } },
@@ -58,7 +60,9 @@ export const brandHandlers = makeMasterDataCrud({
 		buildData(body) {
 			const { nama, origin, identifier } = body;
 			if (!nama || !origin || !identifier) {
-				return { error: { status: 400, message: 'Nama, origin, and identifier are required' } };
+				return {
+					error: { status: 400, message: 'Nama, origin, and identifier are required' },
+				};
 			}
 			return { data: { nama, origin, identifier } };
 		},
@@ -91,7 +95,7 @@ export const materialModelHandlers = makeMasterDataCrud({
 	}),
 	extendWhere: (req, where) => {
 		const query = req.query || {};
-		const brand = query.brand ? String(query.brand).trim() : "";
+		const brand = query.brand ? String(query.brand).trim() : '';
 		if (!brand) return where;
 		const brandClause = {
 			brand: { is: { nama: { contains: brand } } },
@@ -113,7 +117,12 @@ export const materialModelHandlers = makeMasterDataCrud({
 		buildData(body) {
 			const { nama, materialCategoryId, brandId, code } = body;
 			if (!nama || !materialCategoryId || !brandId) {
-				return { error: { status: 400, message: 'Nama, materialCategoryId, and brandId are required' } };
+				return {
+					error: {
+						status: 400,
+						message: 'Nama, materialCategoryId, and brandId are required',
+					},
+				};
 			}
 			const data = {
 				nama,
@@ -126,14 +135,20 @@ export const materialModelHandlers = makeMasterDataCrud({
 		},
 		async validate(body) {
 			const categoryId = parseInt(body.materialCategoryId, 10);
-			if (categoryId && !(await prisma.materialCategory.findUnique({ where: { id: categoryId } }))) {
+			if (
+				categoryId &&
+				!(await prisma.materialCategory.findUnique({ where: { id: categoryId } }))
+			) {
 				return { status: 404, message: 'Category not found' };
 			}
 			const brandId = parseInt(body.brandId, 10);
 			if (brandId && !(await prisma.brand.findUnique({ where: { id: brandId } }))) {
 				return { status: 404, message: 'Brand not found' };
 			}
-			if (body.nama && (await prisma.materialModel.findUnique({ where: { nama: body.nama } }))) {
+			if (
+				body.nama &&
+				(await prisma.materialModel.findUnique({ where: { nama: body.nama } }))
+			) {
 				return { status: 400, message: 'Material model name already exists' };
 			}
 			return null;
@@ -142,7 +157,10 @@ export const materialModelHandlers = makeMasterDataCrud({
 	update: {
 		async validate(body, id) {
 			const categoryId = parseInt(body.materialCategoryId, 10);
-			if (categoryId && !(await prisma.materialCategory.findUnique({ where: { id: categoryId } }))) {
+			if (
+				categoryId &&
+				!(await prisma.materialCategory.findUnique({ where: { id: categoryId } }))
+			) {
 				return { status: 404, message: 'Category not found' };
 			}
 			const brandId = parseInt(body.brandId, 10);
@@ -164,7 +182,8 @@ export const materialModelHandlers = makeMasterDataCrud({
 			if (nama) data.nama = nama;
 			if (body.code) data.code = body.code;
 			if (body.deskripsi !== undefined) data.deskripsi = body.deskripsi;
-			if (body.materialCategoryId) data.materialCategoryId = parseInt(body.materialCategoryId, 10);
+			if (body.materialCategoryId)
+				data.materialCategoryId = parseInt(body.materialCategoryId, 10);
 			if (body.brandId) data.brandId = parseInt(body.brandId, 10);
 			return data;
 		},

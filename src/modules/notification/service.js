@@ -15,7 +15,14 @@ const db = (tx) => tx ?? prisma;
  * @param {string} [data.referenceType]
  */
 export async function createNotification(data, tx = null) {
-	const { userId, title, message, type = 'SYSTEM', referenceId = null, referenceType = null } = data;
+	const {
+		userId,
+		title,
+		message,
+		type = 'SYSTEM',
+		referenceId = null,
+		referenceType = null,
+	} = data;
 	if (!userId || !title || !message) {
 		throw Object.assign(new Error('userId, title, dan message wajib untuk notifikasi'), {
 			statusCode: 400,

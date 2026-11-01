@@ -200,9 +200,7 @@ export const getDashboardSummary = async (req, res) => {
 		]);
 
 		// ── Inventori ────────────────────────────────────────────────
-		const itemCountByStatus = new Map(
-			itemStatusRows.map((r) => [r.status, r._count._all]),
-		);
+		const itemCountByStatus = new Map(itemStatusRows.map((r) => [r.status, r._count._all]));
 		const totalItems = itemStatusRows.reduce((acc, r) => acc + r._count._all, 0);
 		const inventoryStats = {
 			totalItems,
@@ -225,15 +223,11 @@ export const getDashboardSummary = async (req, res) => {
 		const recentRequestsMapped = recentRequests.map((r) => ({
 			id: r.id,
 			requestNumber: r.requestNumber || '-',
-			requesterName:
-				r.requester?.profile?.nama || r.requester?.username || 'Unknown',
+			requesterName: r.requester?.profile?.nama || r.requester?.username || 'Unknown',
 			partnerCategory: r.requester?.profile?.partnerType || '',
 			status: r.status,
 			requestedAt: r.requestedAt,
-			itemsCount: r.requestItems.reduce(
-				(acc, item) => acc + item.quantity,
-				0,
-			),
+			itemsCount: r.requestItems.reduce((acc, item) => acc + item.quantity, 0),
 		}));
 
 		// ── Aktivitas terbaru ────────────────────────────────────────
@@ -244,9 +238,7 @@ export const getDashboardSummary = async (req, res) => {
 			mitra:
 				t.user?.role === 'ADMIN'
 					? 'KP Tasikmalaya'
-					: t.user?.profile?.nama ||
-						t.user?.username ||
-						'KP Tasikmalaya',
+					: t.user?.profile?.nama || t.user?.username || 'KP Tasikmalaya',
 			createdAt: t.createdAt,
 		}));
 
@@ -257,9 +249,7 @@ export const getDashboardSummary = async (req, res) => {
 			const rawMitra =
 				item.createdBy?.role === 'ADMIN'
 					? 'KP Tasikmalaya'
-					: item.createdBy?.profile?.nama ||
-						item.createdBy?.username ||
-						'';
+					: item.createdBy?.profile?.nama || item.createdBy?.username || '';
 			const mitra = rawMitra.trim() || 'Lainnya';
 			if (!mitraMap.has(mitra)) {
 				mitraMap.set(mitra, { mitra, tersedia: 0, terpakai: 0 });

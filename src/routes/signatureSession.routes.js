@@ -1,5 +1,10 @@
 import express from 'express';
-import { createSession, getSession, submitSignature, renderMobileSignPage } from '../controllers/signatureSession.controller.js';
+import {
+	createSession,
+	getSession,
+	submitSignature,
+	renderMobileSignPage,
+} from '../controllers/signatureSession.controller.js';
 
 const router = express.Router();
 
@@ -11,4 +16,3 @@ router.get('/:id', getSession);
 router.post('/:id', submitSignature);
 
 export default router;
-

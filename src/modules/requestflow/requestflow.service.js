@@ -25,24 +25,6 @@ export async function releaseAllocations(tx, request) {
 }
 
 /**
- * Pemetaan snapshot alokasi untuk dokumen BAST — satu definisi
- * (sebelumnya diduplikasi 4× di request & signatureSession controller).
- * @param {object} request dengan requestItems.allocations.item.model.{brand,materialCategory}
- */
-export function buildAllocationSnapshot(request) {
-	return request.requestItems.flatMap((item) =>
-		item.allocations.map((alloc) => ({
-			materialNumber: alloc.item?.model?.code || '-',
-			// Nama barang pada dokumen memakai deskripsi model bila ada.
-			materialName: alloc.item?.model?.deskripsi || alloc.item?.model?.nama || '-',
-			serialNumber: alloc.item?.serialNumber || '-',
-			quantity: 1,
-			unit: 'Unit',
-		}))
-	);
-}
-
-/**
  * Rantai identitas/signature Pihak Pertama (admin) — satu definisi
  * (sebelumnya 3 varian). Prioritas:
  *   snapshot dokumen → admin pelaku → allocatedBy bertanda tangan →
@@ -50,7 +32,11 @@ export function buildAllocationSnapshot(request) {
  *
  * @returns {Promise<{name: string|null, signatureUrl: string|null}>}
  */
-export async function resolveAdminIdentity({ deliveryDocument = null, actingAdmin = null, request = null } = {}) {
+export async function resolveAdminIdentity({
+	deliveryDocument = null,
+	actingAdmin = null,
+	request = null,
+} = {}) {
 	let name = deliveryDocument?.kpName || null;
 	let signatureUrl = deliveryDocument?.kpSignatureUrl || null;
 
@@ -143,7 +129,10 @@ export async function assertReturnRusakComplete(tx, request) {
 
 	// Untuk requestItem ber-SN: butuh item dengan SN tersebut ter-return (RUSAK).
 	// SN dinormalisasi (upper/trim) — konsisten dgn intake.
-	const normalize = (s) => String(s || '').trim().toUpperCase();
+	const normalize = (s) =>
+		String(s || '')
+			.trim()
+			.toUpperCase();
 	const snItems = request.requestItems?.filter((ri) => ri.serialNumber) ?? [];
 	if (snItems.length > 0) {
 		const normalizedSns = snItems.map((ri) => normalize(ri.serialNumber));
@@ -164,10 +153,9 @@ export async function assertReturnRusakComplete(tx, request) {
 	}
 
 	// Untuk konsumabel (tanpa SN): jumlah RUSAK ter-bound harus memenuhi total quantity.
-	const consumedQuantity = request.requestItems?.reduce(
-		(acc, ri) => acc + (ri.serialNumber ? 0 : ri.quantity),
-		0
-	) || 0;
+	const consumedQuantity =
+		request.requestItems?.reduce((acc, ri) => acc + (ri.serialNumber ? 0 : ri.quantity), 0) ||
+		0;
 	const deliveredRusakCount = deliveredRows.length;
 	if (deliveredRusakCount < consumedQuantity) {
 		return {
@@ -178,7 +166,10 @@ export async function assertReturnRusakComplete(tx, request) {
 
 	const doc = await tx.deliveryDocument.findUnique({ where: { requestId: request.id } });
 	if (!doc || !doc.finalFilePath) {
-		return { ok: false, message: 'BAST pengajuan material rusak belum final (belum lengkap tanda tangan)' };
+		return {
+			ok: false,
+			message: 'BAST pengajuan material rusak belum final (belum lengkap tanda tangan)',
+		};
 	}
 
 	return { ok: true };
@@ -220,7 +211,7 @@ export async function completeRequest(tx, request, actor) {
 				type: 'REQUEST',
 				referenceId: request.id,
 			},
-			tx
+			tx,
 		);
 
 		return updatedReq;
@@ -230,7 +221,7 @@ export async function completeRequest(tx, request, actor) {
 
 	const incomingCount = request.requestItems.reduce(
 		(acc, reqItem) => acc + (reqItem.allocations?.length || 0),
-		0
+		0,
 	);
 
 	await assertCapacityAvailable(tx, destinationLocationId, incomingCount);
@@ -276,7 +267,7 @@ export async function completeRequest(tx, request, actor) {
 				type: 'REQUEST',
 				referenceId: request.id,
 			},
-			tx
+			tx,
 		);
 		if (request.providerPartnerId) {
 			await createNotification(
@@ -287,7 +278,7 @@ export async function completeRequest(tx, request, actor) {
 					type: 'REQUEST',
 					referenceId: request.id,
 				},
-				tx
+				tx,
 			);
 		}
 	} else {
@@ -299,7 +290,7 @@ export async function completeRequest(tx, request, actor) {
 				type: 'REQUEST',
 				referenceId: request.id,
 			},
-			tx
+			tx,
 		);
 	}
 

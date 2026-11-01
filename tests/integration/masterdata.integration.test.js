@@ -4,11 +4,8 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const {
-	categoryHandlers,
-	brandHandlers,
-	materialModelHandlers,
-} = await import('../../src/modules/masterdata/handlers.js');
+const { categoryHandlers, brandHandlers, materialModelHandlers } =
+	await import('../../src/modules/masterdata/handlers.js');
 
 const RUN = `MD${Date.now().toString(36).toUpperCase()}`;
 
@@ -53,7 +50,10 @@ describe('masterdata handlers — integration', () => {
 		const created = await prisma.materialCategory.findFirst({ where: { nama: `CAT-${RUN}` } });
 
 		res = mockRes();
-		await categoryHandlers.update({ params: { id: String(created.id) }, body: { safetyStock: 7 } }, res);
+		await categoryHandlers.update(
+			{ params: { id: String(created.id) }, body: { safetyStock: 7 } },
+			res,
+		);
 		expect(res.body.category.safetyStock).toBe(7);
 
 		res = mockRes();
@@ -74,14 +74,14 @@ describe('masterdata handlers — integration', () => {
 		res = mockRes();
 		await brandHandlers.create(
 			{ body: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } },
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(201);
 
 		res = mockRes();
 		await brandHandlers.create(
 			{ body: { nama: `BRD-${RUN}-lain`, origin: 'Test', identifier: `ID-${RUN}` } },
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(400); // identifier bentrok
 
@@ -90,7 +90,7 @@ describe('masterdata handlers — integration', () => {
 		res = mockRes();
 		await brandHandlers.update(
 			{ params: { id: String(brand.id) }, body: { name: `BRD-${RUN}-renamed` } },
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(200);
 		expect(res.body.brand.nama).toBe(`BRD-${RUN}-renamed`);
@@ -100,20 +100,28 @@ describe('masterdata handlers — integration', () => {
 		let res = mockRes();
 		await materialModelHandlers.create(
 			{ body: { nama: `MDL-${RUN}-x`, materialCategoryId: 999999, brandId: 1 } },
-			res
+			res,
 		);
 		expect(res.statusCode).toBe(404);
 		expect(res.body.message).toBe('Category not found');
 
-		const cat = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}-mm`, safetyStock: 5 } });
+		const cat = await prisma.materialCategory.create({
+			data: { nama: `CAT-${RUN}-mm`, safetyStock: 5 },
+		});
 		const brand = await prisma.brand.create({
 			data: { nama: `BRD-${RUN}-mm`, origin: 'Test', identifier: `ID-${RUN}-mm` },
 		});
 
 		res = mockRes();
 		await materialModelHandlers.create(
-			{ body: { nama: `MDL-${RUN}-ok`, materialCategoryId: String(cat.id), brandId: String(brand.id) } },
-			res
+			{
+				body: {
+					nama: `MDL-${RUN}-ok`,
+					materialCategoryId: String(cat.id),
+					brandId: String(brand.id),
+				},
+			},
+			res,
 		);
 		expect(res.statusCode).toBe(201);
 		expect(res.body.model.code).toMatch(/^[A-Z0-9-]+-\d+$/);
