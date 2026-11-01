@@ -5,22 +5,30 @@ process.env.PRISMA_DATASOURCE_URL =
 	process.env.TEST_DATABASE_URL || 'mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test';
 
 const { default: prisma } = await import('../../src/shared/prisma.js');
-const {
-	validateReconSubmission,
-	upsertReconRecord,
-	decodeImage,
-} = await import('../../src/modules/recon/recon.service.js');
+const { validateReconSubmission, upsertReconRecord, decodeImage } =
+	await import('../../src/modules/recon/recon.service.js');
 
 const RUN = `RC${Date.now().toString(36).toUpperCase()}`;
 let admin, mitra, model, itemByMitra;
 
 async function seed() {
-	admin = await prisma.user.create({ data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' } });
-	mitra = await prisma.user.create({ data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' } });
+	admin = await prisma.user.create({
+		data: { username: `${RUN}-admin`, password: 'x', role: 'ADMIN' },
+	});
+	mitra = await prisma.user.create({
+		data: { username: `${RUN}-mitra`, password: 'x', role: 'MITRA' },
+	});
 	const category = await prisma.materialCategory.create({ data: { nama: `CAT-${RUN}` } });
-	const brand = await prisma.brand.create({ data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` } });
+	const brand = await prisma.brand.create({
+		data: { nama: `BRD-${RUN}`, origin: 'Test', identifier: `ID-${RUN}` },
+	});
 	model = await prisma.materialModel.create({
-		data: { nama: `MDL-${RUN}`, code: `${RUN}-C`, materialCategoryId: category.id, brandId: brand.id },
+		data: {
+			nama: `MDL-${RUN}`,
+			code: `${RUN}-C`,
+			materialCategoryId: category.id,
+			brandId: brand.id,
+		},
 	});
 }
 
@@ -115,19 +123,19 @@ describe('recon service — integration', () => {
 			userId: mitra.id,
 			itemId: itemByMitra.id,
 			date: `${RUN}-2026`,
-			imageUrl: 'http://minio/a.jpg',
+			imageUrl: 'http://storage.local/a.jpg',
 		});
 		await upsertReconRecord({
 			userId: mitra.id,
 			itemId: itemByMitra.id,
 			date: `${RUN}-2026`,
-			imageUrl: 'http://minio/b.jpg',
+			imageUrl: 'http://storage.local/b.jpg',
 		});
 
 		const records = await prisma.reconRecord.findMany({
 			where: { itemId: itemByMitra.id, date: `${RUN}-2026` },
 		});
 		expect(records.length).toBe(1);
-		expect(records[0].imageUrl).toBe('http://minio/b.jpg');
+		expect(records[0].imageUrl).toBe('http://storage.local/b.jpg');
 	});
 });

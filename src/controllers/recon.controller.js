@@ -1,9 +1,9 @@
-import prisma from "../shared/prisma.js";
+import prisma from '../shared/prisma.js';
 import {
 	submitReconProgress,
 	upsertReconRecord,
 	resolveImageUrlForStorage,
-} from "../modules/recon/recon.service.js";
+} from '../modules/recon/recon.service.js';
 
 /**
  * GET /recon-progress?userId=&date=
@@ -18,20 +18,20 @@ export const getReconProgress = async (req, res) => {
 
 		const records = await prisma.reconRecord.findMany({
 			where,
-			orderBy: { createdAt: "desc" },
+			orderBy: { createdAt: 'desc' },
 		});
 
 		return res.json({ data: records });
 	} catch (error) {
-		console.error("Error in getReconProgress:", error);
-		return res.status(500).json({ message: "Internal server error" });
+		console.error('Error in getReconProgress:', error);
+		return res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
 /**
  * POST /recon-progress
  * Body: { userId, date, itemId, imageUrl(base64), timestamp/capturedAt }
- * Validasi kepemilikan item, upload gambar ke MinIO, simpan/upsert record.
+ * Validasi kepemilikan item, upload gambar ke object storage, simpan/upsert record.
  */
 export const postReconProgress = async (req, res) => {
 	try {
@@ -39,13 +39,13 @@ export const postReconProgress = async (req, res) => {
 
 		// userId dari req.user (authoritative), bukan body — hindari spoofing.
 		const userId = req.user?.id || req.body.userId;
-		if (!userId) return res.status(401).json({ message: "Unauthorized" });
-		if (!date) return res.status(400).json({ message: "date wajib diisi" });
+		if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+		if (!date) return res.status(400).json({ message: 'date wajib diisi' });
 
 		// Payload base64 bisa datang sebagai `image` atau `imageUrl` (nama lama di mobile).
 		const base64Image = image || imageUrl;
 		if (!base64Image) {
-			return res.status(400).json({ message: "Gambar rekon wajib dikirim" });
+			return res.status(400).json({ message: 'Gambar rekon wajib dikirim' });
 		}
 
 		// Waktu foto diambil mitra — bisa datang sebagai `capturedAt` atau `timestamp`.
@@ -58,16 +58,15 @@ export const postReconProgress = async (req, res) => {
 			image: base64Image,
 			capturedAt: photoTime,
 		});
-		if (!result.ok)
-			return res.status(result.status).json({ message: result.message });
+		if (!result.ok) return res.status(result.status).json({ message: result.message });
 
 		return res.json({
-			message: "Progress rekon disinkronkan",
+			message: 'Progress rekon disinkronkan',
 			data: result.record,
 		});
 	} catch (error) {
-		console.error("Error in postReconProgress:", error);
-		return res.status(500).json({ message: "Internal server error" });
+		console.error('Error in postReconProgress:', error);
+		return res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -79,14 +78,14 @@ export const deleteReconProgress = async (req, res) => {
 	try {
 		const { userId, date } = req.query;
 		if (!userId || !date) {
-			return res.status(400).json({ message: "userId dan date wajib diisi" });
+			return res.status(400).json({ message: 'userId dan date wajib diisi' });
 		}
 
 		await prisma.reconRecord.deleteMany({ where: { userId, date } });
-		return res.json({ message: "Progress rekon di-reset" });
+		return res.json({ message: 'Progress rekon di-reset' });
 	} catch (error) {
-		console.error("Error in deleteReconProgress:", error);
-		return res.status(500).json({ message: "Internal server error" });
+		console.error('Error in deleteReconProgress:', error);
+		return res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -103,13 +102,13 @@ export const getReconReports = async (req, res) => {
 
 		const records = await prisma.reconRecord.findMany({
 			where,
-			orderBy: { date: "desc" },
+			orderBy: { date: 'desc' },
 		});
 
 		return res.json({ data: records });
 	} catch (error) {
-		console.error("Error in getReconReports:", error);
-		return res.status(500).json({ message: "Internal server error" });
+		console.error('Error in getReconReports:', error);
+		return res.status(500).json({ message: 'Internal server error' });
 	}
 };
 
@@ -117,23 +116,23 @@ export const getReconReports = async (req, res) => {
  * POST /recon-reports
  * Body: { userId, mitra, tanggal, itemsCount, items: [{ itemId, imageUrl, timestamp }] }
  * Simpan laporan harian: upsert tiap item ke ReconRecord.
- * imageUrl bisa berupa URL MinIO (sudah ter-upload) atau base64 (akan di-upload).
+ * imageUrl bisa berupa URL storage (sudah ter-upload) atau base64 (akan di-upload).
  */
 export const postReconReports = async (req, res) => {
 	try {
 		const userId = req.user?.id || req.body.userId;
-		if (!userId) return res.status(401).json({ message: "Unauthorized" });
+		if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
 		const { tanggal, items } = req.body || {};
 		if (!tanggal || !Array.isArray(items)) {
-			return res.status(400).json({ message: "tanggal dan items wajib diisi" });
+			return res.status(400).json({ message: 'tanggal dan items wajib diisi' });
 		}
 
 		let saved = 0;
 		for (const it of items) {
 			if (!it?.itemId || !it?.imageUrl) continue;
 
-			// Cek kepemilikan item (tanpa validasi gambar — imageUrl bisa berupa URL MinIO).
+			// Cek kepemilikan item (tanpa validasi gambar — imageUrl bisa berupa URL storage).
 			const item = await prisma.item.findUnique({ where: { id: it.itemId } });
 			if (!item) continue;
 
@@ -146,7 +145,7 @@ export const postReconReports = async (req, res) => {
 			}
 			if (!isOwner) continue;
 
-			// Resolve imageUrl: jika URL MinIO → simpan langsung, jika base64 → upload dulu.
+			// Resolve imageUrl: jika URL storage → simpan langsung, jika base64 → upload dulu.
 			const resolved = await resolveImageUrlForStorage({
 				userId,
 				itemId: it.itemId,
@@ -167,9 +166,9 @@ export const postReconReports = async (req, res) => {
 
 		return res
 			.status(201)
-			.json({ message: "Laporan Recon berhasil disimpan", data: { saved } });
+			.json({ message: 'Laporan Recon berhasil disimpan', data: { saved } });
 	} catch (error) {
-		console.error("Error in postReconReports:", error);
-		return res.status(500).json({ message: "Internal server error" });
+		console.error('Error in postReconReports:', error);
+		return res.status(500).json({ message: 'Internal server error' });
 	}
 };

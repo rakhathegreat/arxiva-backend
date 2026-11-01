@@ -38,7 +38,7 @@ progressRouter.get('/', getReconProgress);
  * /recon-progress:
  *   post:
  *     tags: [Recon]
- *     summary: Submit a single item recon (base64 photo → MinIO URL)
+ *     summary: Submit a single item recon (base64 photo → storage URL)
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -140,4 +140,3 @@ reportsRouter.get('/', getReconReports);
 reportsRouter.post('/', postReconReports);
 
 export { progressRouter, reportsRouter };
-

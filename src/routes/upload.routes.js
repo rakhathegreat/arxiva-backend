@@ -13,8 +13,8 @@ router.use(authMiddleware);
  * /upload/image:
  *   post:
  *     tags: [Upload]
- *     summary: Upload an image to MinIO
- *     description: Upload an image file (JPEG, PNG, WebP, GIF, SVG) to MinIO object storage and return its public URL.
+ *     summary: Upload an image to object storage
+ *     description: Upload an image file (JPEG, PNG, WebP, GIF, SVG) to object storage and return its public URL.
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -68,13 +68,17 @@ router.use(authMiddleware);
  *       500:
  *         description: Upload process failed
  */
-router.post('/image', (req, res, next) => {
-	uploadSingleImage(req, res, (err) => {
-		if (err) {
-			return res.status(400).json({ message: err.message });
-		}
-		next();
-	});
-}, uploadImageController);
+router.post(
+	'/image',
+	(req, res, next) => {
+		uploadSingleImage(req, res, (err) => {
+			if (err) {
+				return res.status(400).json({ message: err.message });
+			}
+			next();
+		});
+	},
+	uploadImageController,
+);
 
 export default router;

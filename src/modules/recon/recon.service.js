@@ -1,5 +1,5 @@
-import prisma from "../../shared/prisma.js";
-import { uploadImageToMinio } from "../../services/minio.service.js";
+import prisma from '../../shared/prisma.js';
+import { uploadImage } from '../../services/storage.service.js';
 
 const MAX_IMAGE_BYTES = 1024 * 1024; // 1MB
 
@@ -8,27 +8,27 @@ const MAX_IMAGE_BYTES = 1024 * 1024; // 1MB
  * Mendukung "data:image/jpeg;base64,..." dan base64 polos.
  */
 export function decodeImage(base64) {
-	if (typeof base64 !== "string" || base64.length === 0) return null;
+	if (typeof base64 !== 'string' || base64.length === 0) return null;
 
-	let mimeType = "image/jpeg";
+	let mimeType = 'image/jpeg';
 	let raw = base64;
 
 	const dataUrlMatch = base64.match(/^data:([^;,]+);base64,(.+)$/s);
 	if (dataUrlMatch) {
 		mimeType = dataUrlMatch[1];
 		raw = dataUrlMatch[2];
-	} else if (base64.includes(",")) {
+	} else if (base64.includes(',')) {
 		// Mungkin ada prefix "data:image/...;base64," — ambil setelah koma jika ada.
-		const idx = base64.indexOf(",");
+		const idx = base64.indexOf(',');
 		const s = base64.slice(0, idx);
-		if (s.includes("base64")) {
-			mimeType = s.match(/data:([^;]+)/)?.[1] || "image/jpeg";
+		if (s.includes('base64')) {
+			mimeType = s.match(/data:([^;]+)/)?.[1] || 'image/jpeg';
 			raw = base64.slice(idx + 1);
 		}
 	}
 
 	try {
-		const buffer = Buffer.from(raw, "base64");
+		const buffer = Buffer.from(raw, 'base64');
 		if (buffer.length === 0) return null;
 		return { buffer, mimeType };
 	} catch {
@@ -46,10 +46,10 @@ export function decodeImage(base64) {
  * Mengembalikan { ok: true, item } atau { ok: false, status, message }.
  */
 export async function validateReconSubmission({ userId, itemId, image }) {
-	if (!itemId) return { ok: false, status: 400, message: "itemId wajib diisi" };
+	if (!itemId) return { ok: false, status: 400, message: 'itemId wajib diisi' };
 
 	const item = await prisma.item.findUnique({ where: { id: itemId } });
-	if (!item) return { ok: false, status: 404, message: "Item tidak ditemukan" };
+	if (!item) return { ok: false, status: 404, message: 'Item tidak ditemukan' };
 
 	// Cek kepemilikan: createdById (cara utama) ATAU via UserLocation (fallback)
 	let isOwner = item.createdById === userId;
@@ -61,17 +61,16 @@ export async function validateReconSubmission({ userId, itemId, image }) {
 	}
 
 	if (!isOwner) {
-		return { ok: false, status: 403, message: "Item bukan milik mitra ini" };
+		return { ok: false, status: 403, message: 'Item bukan milik mitra ini' };
 	}
 
 	const decoded = decodeImage(image);
-	if (!decoded)
-		return { ok: false, status: 400, message: "Gambar base64 tidak valid" };
+	if (!decoded) return { ok: false, status: 400, message: 'Gambar base64 tidak valid' };
 	if (decoded.buffer.length > MAX_IMAGE_BYTES) {
 		return {
 			ok: false,
 			status: 413,
-			message: "Ukuran foto melebihi batas 1MB",
+			message: 'Ukuran foto melebihi batas 1MB',
 		};
 	}
 
@@ -82,13 +81,7 @@ export async function validateReconSubmission({ userId, itemId, image }) {
  * Simpan satu record rekon (upsert per itemId + date).
  * capturedAt: waktu nyata foto diambil mitra (bisa null jika tidak dikirim).
  */
-export async function upsertReconRecord({
-	userId,
-	itemId,
-	date,
-	imageUrl,
-	capturedAt,
-}) {
+export async function upsertReconRecord({ userId, itemId, date, imageUrl, capturedAt }) {
 	return prisma.reconRecord.upsert({
 		where: { itemId_date: { itemId, date } },
 		update: {
@@ -107,25 +100,19 @@ export async function upsertReconRecord({
 }
 
 /**
- * Kelola payload `POST /recon-progress`: validasi → upload MinIO → upsert.
+ * Kelola payload `POST /recon-progress`: validasi → upload object storage → upsert.
  */
-export async function submitReconProgress({
-	userId,
-	itemId,
-	date,
-	image,
-	capturedAt,
-}) {
+export async function submitReconProgress({ userId, itemId, date, image, capturedAt }) {
 	const validation = await validateReconSubmission({ userId, itemId, image });
 	if (!validation.ok) return validation;
 
 	const { decoded } = validation;
 
-	const upload = await uploadImageToMinio({
+	const upload = await uploadImage({
 		fileBuffer: decoded.buffer,
 		originalName: `recon-${itemId}-${date}.jpg`,
 		mimeType: decoded.mimeType,
-		folder: "recon",
+		folder: 'recon',
 	});
 
 	const record = await upsertReconRecord({
@@ -141,45 +128,39 @@ export async function submitReconProgress({
 
 /**
  * Persiapkan `imageUrl` untuk disimpan:
- * - data URL base64 → decode, batasi ≤1MB (413), upload MinIO
- * - URL http(s) eksisting (sudah ada di MinIO) → simpan apa adanya tanpa re-upload
+ * - data URL base64 → decode, batasi ≤1MB (413), upload ke storage
+ * - URL http(s) eksisting (sudah ada di storage) → simpan apa adanya tanpa re-upload
  * Mengembalikan { ok: true, imageUrl } atau { ok: false, status, message }.
  *
  * CATATAN: ownership sudah divalidasi sebelum memanggil fungsi ini, tidak perlu re-validate.
  */
-export async function resolveImageUrlForStorage({
-	image,
-	itemId,
-	date,
-	userId,
-}) {
-	const isDataUrl = typeof image === "string" && image.startsWith("data:");
+export async function resolveImageUrlForStorage({ image, itemId, date, userId }) {
+	const isDataUrl = typeof image === 'string' && image.startsWith('data:');
 
 	// URL http(s) sudah ada di storage — simpan langsung tanpa re-upload
 	if (!isDataUrl) {
-		if (typeof image !== "string" || !/^https?:\/\//.test(image)) {
-			return { ok: false, status: 400, message: "imageUrl tidak valid" };
+		if (typeof image !== 'string' || !/^https?:\/\//.test(image)) {
+			return { ok: false, status: 400, message: 'imageUrl tidak valid' };
 		}
 		return { ok: true, imageUrl: image };
 	}
 
 	// Base64 baru — decode, cek ukuran, upload
 	const decoded = decodeImage(image);
-	if (!decoded)
-		return { ok: false, status: 400, message: "Gambar base64 tidak valid" };
+	if (!decoded) return { ok: false, status: 400, message: 'Gambar base64 tidak valid' };
 	if (decoded.buffer.length > MAX_IMAGE_BYTES) {
 		return {
 			ok: false,
 			status: 413,
-			message: "Ukuran foto melebihi batas 1MB",
+			message: 'Ukuran foto melebihi batas 1MB',
 		};
 	}
 
-	const upload = await uploadImageToMinio({
+	const upload = await uploadImage({
 		fileBuffer: decoded.buffer,
 		originalName: `recon-${itemId}-${date}.jpg`,
 		mimeType: decoded.mimeType,
-		folder: "recon",
+		folder: 'recon',
 	});
 
 	return { ok: true, imageUrl: upload.url };

@@ -1,4 +1,4 @@
-import { uploadImageToMinio } from '../services/minio.service.js';
+import { uploadImage } from '../services/storage.service.js';
 
 /**
  * Controller to handle image upload requests.
@@ -14,7 +14,7 @@ export const uploadImageController = async (req, res) => {
 
 		const folder = req.body.folder || 'images';
 
-		const uploadResult = await uploadImageToMinio({
+		const uploadResult = await uploadImage({
 			fileBuffer: req.file.buffer,
 			originalName: req.file.originalname,
 			mimeType: req.file.mimetype,
@@ -22,13 +22,13 @@ export const uploadImageController = async (req, res) => {
 		});
 
 		return res.status(201).json({
-			message: 'Gambar berhasil diunggah ke MinIO',
+			message: 'Gambar berhasil diunggah',
 			data: uploadResult,
 		});
 	} catch (error) {
 		console.error('Error in uploadImageController:', error);
 		return res.status(500).json({
-			message: 'Gagal mengunggah gambar ke MinIO',
+			message: 'Gagal mengunggah gambar',
 			error: error.message,
 		});
 	}
