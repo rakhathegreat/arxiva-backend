@@ -3,21 +3,31 @@
 Pipeline: `.github/workflows/deploy.yml` (push ke `main` atau `workflow_dispatch`).
 
 ```
-ci (lint + unit + integration)  →  build & push image :sha-<commit> + :latest
-                                     →  SSH ke server:
-                                        0. siapkan direktori + cek docker
-                                        1. salin docker-compose.yml + Caddyfile
-                                        2. tulis .env dari secret ENV_FILE_B64
-                                        3. pull image (tag = sha-<commit>)
-                                        4. tunggu MariaDB siap
-                                        5. backup DB ke backups/
-                                        6. prisma migrate deploy
-                                        7. docker compose up -d --wait
-                                        8. cek /health, gagal = job merah
+ci (lint + unit + integration)          ← reusable: .github/workflows/ci.yml
+  → build & push image :sha-<commit> + :latest
+      → SSH ke server:
+         0. siapkan direktori + cek docker/compose/curl (SEBELUM build)
+         1. salin docker-compose.yml + Caddyfile
+         2. tulis .env dari secret ENV_FILE_B64
+         3. recreate rustfs (kredensial dibaca ulang dari env)
+         4. pull image (tag = sha-<commit>)
+         5. tunggu MariaDB siap
+         6. backup DB ke backups/db-<timestamp>.sql
+         7. prisma migrate deploy
+         8. docker compose up -d --remove-orphans --wait
+         9. cek /health dari dalam container
+        10. smoke test lewat domain publik (Caddy + TLS ikut terbukti)
 ```
 
-Deploy berhenti di langkah mana pun yang gagal (`set -euo pipefail` +
-`script_stop: true`), jadi image baru tidak akan jalan di atas skema lama.
+`main` **tidak** memicu `ci.yml` sendiri: gate kualitasnya datang dari
+`workflow_call` di Deploy, supaya commit yang sama tidak divalidasi dua kali.
+Job `docker` (build tanpa push) tetap jalan di PR dan push ke `development`, tapi
+dimatikan saat dipanggil Deploy (`build_image: false`) karena Deploy memang
+membangun image yang sama beberapa langkah kemudian.
+
+Semua langkah memakai `set -euo pipefail` + `script_stop: true`. Kalau ada
+langkah yang gagal setelah trap dipasang, deploy **rollback otomatis** ke tag
+`sha-*` sebelumnya.
 
 ## Secret GitHub yang dibutuhkan
 
@@ -67,6 +77,12 @@ otomatis, tapi tanpa reviewer sampai dikonfigurasi.
   Origin di luar daftar tetap tidak mendapat header CORS. Jangan pakai `*`:
   middleware mengirim `credentials: true`, dan wildcard tidak sah untuk itu.
 
+- `TRUST_PROXY` **disuntik pipeline** (`TRUST_PROXY=1`) kalau tidak ada di
+  `ENV_FILE_B64`, karena topologi di compose selalu Caddy → backend. Tanpa ini
+  `express-rate-limit` memakai IP Caddy untuk semua klien, sehingga **satu
+  pengunjung bisa mengunci login semua orang**. Set nilai lain hanya kalau hop
+  proxy-nya berbeda.
+
 - Direktori `/home/taslim/deploy` (lihat `SERVER_DIR` di workflow). Pipeline
   membuatnya sendiri (`mkdir -p`) dan user deploy harus bisa menulis ke sana,
   karena pipeline menulis `.env` dan `backups/`.
@@ -76,13 +92,26 @@ Yang **tidak** perlu disiapkan manual di server: `docker-compose.yml` dan
 Jadi perubahan compose/Caddy ikut ter-deploy, dan server baru cukup punya
 Docker + user SSH.
 
+Pipeline juga menuliskan `IMAGE_TAG` ke `.env` setiap deploy, sehingga
+`docker compose up -d` manual di server memakai versi yang sedang dirilis —
+bukan `latest` yang bisa saja lebih baru. Bersihkan image lama dengan
+`docker image prune` yang **difilter** label
+`org.opencontainers.image.source=<repo>`: tanpa filter, cache image aplikasi
+lain di host yang sama ikut terhapus.
+
 > Catatan: file di server yang tidak ada di repo (mis. `.env`, `backups/`)
 > tidak tersentuh. Tapi perubahan manual pada `docker-compose.yml`/`Caddyfile`
 > di server akan **tertimpa** — ubah di repo, bukan langsung di server.
 
 ## Rollback
 
-Image sekarang di-tag `sha-<commit>` (immutable):
+Dua lapis:
+
+1. **Otomatis.** Kalau langkah setelah trap gagal (pull, backup, migrasi,
+   `up --wait`, health check, smoke test), skrip memulihkan `IMAGE_TAG` di
+   `.env` ke tag sebelumnya lalu menjalankan `docker compose up -d --no-deps
+backend`. Log 80 baris terakhir container ikut dicetak ke job log.
+2. **Manual**, kalau rollback otomatis tidak cukup (mis. DB perlu dipulihkan):
 
 ```bash
 cd /home/taslim/deploy
@@ -90,8 +119,10 @@ IMAGE_TAG=sha-<commit-lama> docker compose pull backend
 IMAGE_TAG=sha-<commit-lama> docker compose up -d --force-recreate backend
 ```
 
-Migrasi tidak otomatis dibalik. Kalau rilis bermasalah karena migrasi, restore
-dari `backups/` (lihat bawah) sebelum menjalankan image lama.
+Tag `sha-<commit>` **immutable**, jadi tag lama tetap menunjuk commit lama
+walaupun `latest` sudah bergerak. Migrasi tidak otomatis dibalik: kalau rilis
+bermasalah karena migrasi, restore dari `backups/` (lihat bawah) sebelum
+menjalankan image lama.
 
 ## Seed data awal
 
@@ -110,18 +141,20 @@ docker compose exec -T -e SEED_ADMIN_PASSWORD='<password-kuat>' \
 
 ## Backup & restore
 
-Pipeline menyimpan dump harian-ish di `backups/arxiva-<timestamp>.sql` dan
-menghapus yang lebih tua dari 7 hari.
+Pipeline menyimpan dump di `backups/db-<timestamp>.sql`, menghapus yang lebih
+tua dari 7 hari, dan **menganggap backup gagal kalau ukurannya < 1 KB** — dump
+kosong tidak pernah lolos diam-diam. Nama database dibaca dari `MYSQL_DATABASE`
+di container, bukan di-hardcode.
 
 ```bash
 # backup manual
 docker compose exec -T mariadb \
-  sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction arxiva' \
-  > backups/arxiva-manual.sql
+  sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction "$MYSQL_DATABASE"' \
+  > backups/manual.sql
 
 # restore
 docker compose exec -T mariadb \
-  sh -c 'exec mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" arxiva' < backups/arxiva-manual.sql
+  sh -c 'exec mariadb -uroot -p"$MYSQL_ROOT_PASSWORD" "$MYSQL_DATABASE"' < backups/manual.sql
 ```
 
 Backup masih berada di host yang sama. Untuk produksi, salin juga ke luar server
