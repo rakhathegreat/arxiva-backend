@@ -93,6 +93,21 @@ IMAGE_TAG=sha-<commit-lama> docker compose up -d --force-recreate backend
 Migrasi tidak otomatis dibalik. Kalau rilis bermasalah karena migrasi, restore
 dari `backups/` (lihat bawah) sebelum menjalankan image lama.
 
+## Seed data awal
+
+`prisma/seeder.js` **mengosongkan seluruh tabel** lalu membuat user admin.
+Password tidak lagi tertulis di repo (repo publik) — wajib lewat env:
+
+```bash
+docker compose exec -T -e SEED_ADMIN_PASSWORD='<password-kuat>' \
+  backend node prisma/seeder.js
+```
+
+- `SEED_ADMIN_PASSWORD` wajib, minimal 12 karakter; skrip gagal **sebelum**
+  menyentuh database kalau tidak valid.
+- `SEED_ADMIN_USERNAME` opsional (default `admin`).
+- Data demo terpisah: `npm run seed:demo`.
+
 ## Backup & restore
 
 Pipeline menyimpan dump harian-ish di `backups/arxiva-<timestamp>.sql` dan
