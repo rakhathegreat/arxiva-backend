@@ -53,6 +53,20 @@ otomatis, tapi tanpa reviewer sampai dikonfigurasi.
   `STORAGE_ACCESS_KEY`, `STORAGE_SECRET_KEY` — compose menolak start kalau kosong.
   Kalau `MYSQL_DATABASE` tidak diisi, nilainya default `arxiva` (dipakai juga
   oleh langkah backup).
+- **`CORS_ORIGINS` wajib diisi kalau ada klien browser/webview.** Kosong di
+  production berarti **semua** origin browser ditolak (request tetap diproses,
+  tapi browser memblokir responsnya — gejalanya
+  `Origin http://localhost:1420 is not allowed by Access-Control-Allow-Origin`).
+  Untuk menjalankan aplikasi desktop dengan `npm run tauri dev` melawan API
+  production:
+
+  ```
+  CORS_ORIGINS=http://localhost:1420,http://127.0.0.1:1420,http://localhost:1421,http://127.0.0.1:1421
+  ```
+
+  Origin di luar daftar tetap tidak mendapat header CORS. Jangan pakai `*`:
+  middleware mengirim `credentials: true`, dan wildcard tidak sah untuk itu.
+
 - Direktori `/home/taslim/deploy` (lihat `SERVER_DIR` di workflow). Pipeline
   membuatnya sendiri (`mkdir -p`) dan user deploy harus bisa menulis ke sana,
   karena pipeline menulis `.env` dan `backups/`.
