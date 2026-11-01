@@ -14,7 +14,12 @@ const fileFilter = (req, file, cb) => {
 	if (allowedMimeTypes.includes(file.mimetype)) {
 		cb(null, true);
 	} else {
-		cb(new Error(`Tipe file ${file.mimetype} tidak didukung. Hanya file gambar (JPEG, PNG, WebP, GIF, SVG) yang diperbolehkan.`), false);
+		cb(
+			new Error(
+				`Tipe file ${file.mimetype} tidak didukung. Hanya file gambar (JPEG, PNG, WebP, GIF, SVG) yang diperbolehkan.`,
+			),
+			false,
+		);
 	}
 };
 
