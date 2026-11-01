@@ -177,17 +177,9 @@ jobs:
             mv .env.new .env
 
             # --- 2. Rollback otomatis kalau ada langkah yang gagal -------------
-            # Kredensial object storage dibaca RustFS dari env setiap start, jadi
-            # recreate dilakukan sebelum trap: kalau langkah ini gagal, stack
-            # lama belum tersentuh dan rollback tidak diperlukan.
-            docker compose up -d --force-recreate rustfs
-            for i in $(seq 1 30); do
-              # Port S3 hanya di-bind ke loopback, jadi cek dari dalam container.
-              if docker compose exec -T rustfs sh -c 'curl -fsS --max-time 3 http://127.0.0.1:9000/health' >/dev/null 2>&1; then break; fi
-              if [ "$i" -eq 30 ]; then echo "RustFS tidak siap" >&2; exit 1; fi
-              sleep 2
-            done
-
+            # Trap dipasang SEKARANG, tepat setelah `.env` ditimpa. Kalau
+            # dipasang belakangan, kegagalan di langkah berikutnya meninggalkan
+            # `.env` berisi IMAGE_TAG baru sementara container masih versi lama.
             restore() {
               rc=$?
               # Jangan `[ ... ] && return` — dengan `set -e` hasil non-zero dari
@@ -207,6 +199,17 @@ jobs:
               fi
             }
             trap restore EXIT
+
+            # Kredensial object storage dibaca RustFS dari env setiap start, jadi
+            # recreate dilakukan di sini supaya kredensial di `.env` baru benar-
+            # benar terpakai (bukan hanya saat container pertama kali dibuat).
+            docker compose up -d --force-recreate rustfs
+            for i in $(seq 1 30); do
+              # Port S3 hanya di-bind ke loopback, jadi cek dari dalam container.
+              if docker compose exec -T rustfs sh -c 'curl -fsS --max-time 3 http://127.0.0.1:9000/health' >/dev/null 2>&1; then break; fi
+              if [ "$i" -eq 30 ]; then echo "RustFS tidak siap" >&2; exit 1; fi
+              sleep 2
+            done
 
             # --- 3. Siapkan image ---------------------------------------------
             if [ -n "${GHCR_TOKEN:-}" ]; then
