@@ -4,18 +4,35 @@ name: CI
 # (reusable workflow) supaya deploy tidak pernah melewati gate kualitas.
 on:
   push:
-    # main sengaja tidak didaftarkan: push ke main ditangani deploy.yml yang
-    # memanggil workflow ini, sehingga CI tidak berjalan dua kali.
+    # `main` sengaja TIDAK didaftarkan: push ke main ditangani Deploy, yang
+    # memanggil workflow ini lewat `workflow_call`. Mendaftarkannya di sini
+    # membuat lint + seluruh tes + docker build jalan dua kali untuk commit
+    # yang sama. Lewat workflow_call, main tetap tervalidasi (tidak lagi
+    # "hijau karena tidak pernah jalan").
     branches: [development]
   pull_request:
+  workflow_dispatch:
+  # Dipakai Deploy sebagai gate kualitas.
   workflow_call:
+    inputs:
+      build_image:
+        description: 'Bangun image tanpa push (Deploy mematikannya: ia sudah membangun image sendiri)'
+        type: boolean
+        required: false
+        default: true
 
 permissions:
   contents: read
 
+# PR yang sudah usang boleh dibatalkan; push ke main/development jangan, karena
+# Deploy memakai workflow ini sebagai gate dan run yang dibatalkan di tengah
+# jalan akan memblokir deploy yang sedang menunggu.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22' # samakan dengan image runtime (node:22-alpine)
 
 jobs:
   lint:
@@ -23,13 +40,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
+      # prisma.config.ts memakai env("DATABASE_URL"); `prisma generate` gagal
+      # kalau variabel ini kosong.
       DATABASE_URL: mysql://admin:ci-test-password@127.0.0.1:3306/arxiva_ci
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22 # samakan dengan image runtime (node:22-alpine)
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -51,7 +70,9 @@ jobs:
 
     services:
       mariadb:
-        image: mariadb:11
+        # Pin minor: `mariadb:11` bergerak sendiri dan bisa mengubah perilaku
+        # healthcheck / dialek SQL tanpa perubahan di repo.
+        image: mariadb:11.8
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: arxiva_test
@@ -77,11 +98,11 @@ jobs:
       RATE_LIMIT_DISABLED: 'true'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
-          node-version: 22
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -100,3 +121,36 @@ jobs:
 
       - name: Integration tests
         run: npm run test:integration
+
+  # Validasi image tanpa push. Tujuannya menangkap kerusakan Dockerfile /
+  # lockfile di PR, bukan saat deploy (sempat terjadi: `npm ci` gagal karena
+  # package-lock.json tidak sinkron dan baru ketahuan di pipeline deploy).
+  #
+  # Catatan: `github.event_name` di reusable workflow berisi event CALLER
+  # (bukan "workflow_call"), jadi memakainya sebagai kondisi tidak akan pernah
+  # melewati job ini dan image dibangun dua kali per deploy. Karena itu Deploy
+  # mematikan job ini lewat input `build_image: false`.
+  docker:
+    name: docker build
+    # `!= false` (bukan `== true`): untuk trigger `push`/`pull_request` context
+    # `inputs` kosong, sehingga `inputs.build_image` bernilai null. Dengan
+    # `== true` job ini justru mati di jalur yang paling sering dipakai.
+    if: inputs.build_image != false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image (tanpa push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: false
+          # Scope cache yang sama dengan Deploy: layer yang dibangun di sini
+          # langsung dipakai ulang, sehingga build deploy hampir instan.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
