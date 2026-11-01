@@ -7,3 +7,4 @@ node_modules
 coverage
 public/uploads/
 .DS_Store
+audit-report.json

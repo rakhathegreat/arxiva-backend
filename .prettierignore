@@ -13,3 +13,4 @@ arxiva-backend/src/generated
 *.png
 *.ico
 *.icns
+audit-report.json
