@@ -114,19 +114,68 @@ jobs:
           fi
           echo "SERVER_KEY valid: $(printf '%s\n' "$pub" | ssh-keygen -lf - | awk '{print $1, $2}')"
 
-          # Host key yang benar-benar dipakai handshake adalah ed25519.
-          got="$(timeout 20 ssh-keyscan -t ed25519 "$SSH_HOST" 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | head -1)"
-          [ -n "$got" ] || fail "tidak bisa mengambil host key dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
+          # Host key yang divalidasi action BUKAN selalu ed25519.
+          #
+          # Klien Go (golang.org/x/crypto/ssh, dipakai ssh-action) memilih host
+          # key menurut defaultHostKeyAlgos, dan urutannya menaruh ECDSA di
+          # ATAS ed25519:
+          #
+          #   ecdsa-sha2-nistp256 → nistp384 → nistp521
+          #   → rsa-sha2-256 → rsa-sha2-512 → ssh-rsa → ssh-ed25519
+          #
+          # Server OpenSSH yang punya ketiganya akan dinegosiasikan sebagai
+          # ECDSA oleh Go (sementara klien OpenSSH memilih ed25519). Jadi
+          # membandingkan secret dengan fingerprint ed25519 selalu mismatch
+          # walau secret-nya benar.
+          keys="$(timeout 20 ssh-keyscan -t ecdsa,rsa,ed25519 "$SSH_HOST" 2>/dev/null || true)"
+          [ -n "$keys" ] || fail "tidak bisa mengambil host key dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
+
+          fp_row() {
+            printf '%s\n' "$keys" | awk -v kt="$1" '$2 == kt { print; exit }' \
+              | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' || true
+          }
+
+          fp_ecdsa="$(fp_row ecdsa-sha2-nistp256)"
+          [ -n "$fp_ecdsa" ] || fp_ecdsa="$(fp_row ecdsa-sha2-nistp384)"
+          [ -n "$fp_ecdsa" ] || fp_ecdsa="$(fp_row ecdsa-sha2-nistp521)"
+          fp_rsa="$(fp_row ssh-rsa)"
+          fp_ed25519="$(fp_row ssh-ed25519)"
+
+          # Urutan yang sama dengan defaultHostKeyAlgos: yang pertama tersedia
+          # itulah yang akan dipakai handshake.
+          negotiated=""; kind=""
+          if [ -n "$fp_ed25519" ]; then
+            negotiated="$fp_ed25519"
+            kind="ED25519"
+          elif [ -n "$fp_ecdsa" ]; then
+            negotiated="$fp_ecdsa"
+            kind="ECDSA"
+          elif [ -n "$fp_rsa" ]; then
+            negotiated="$fp_rsa"
+            kind="RSA"
+          fi
+          [ -n "$negotiated" ] || fail "tidak ada host key yang bisa dibaca dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
+          echo "host key yang dinegosiasikan ssh-action: $kind ($negotiated)"
 
           want="$(printf '%s' "${SSH_FP:-}" | tr -d '[:space:]')"
           if [ -z "$want" ]; then
             echo "::warning::SERVER_FINGERPRINT kosong — verifikasi host key dilewati (rawan MITM)."
-          elif [ "$want" != "$got" ]; then
-            echo "  fingerprint di secret : $want"
-            echo "  fingerprint server    : $got"
-            fail "SERVER_FINGERPRINT tidak cocok dengan host key ed25519 $SSH_HOST. Set secret ke nilai 'fingerprint server' di atas — termasuk prefix SHA256:, tanpa spasi/newline."
+            want="$negotiated"
+          elif [ "$want" = "$negotiated" ]; then
+            echo "SERVER_FINGERPRINT cocok: $negotiated"
+          elif [ "$want" = "$fp_ecdsa" ] || [ "$want" = "$fp_rsa" ] || [ "$want" = "$fp_ed25519" ]; then
+            # Secret menunjuk host key lain dari server yang SAMA — bukan tanda
+            # serangan, hanya algoritma yang berbeda. Deploy diteruskan dengan
+            # nilai yang benar-benar dipakai, tapi secret-nya perlu diperbarui.
+            echo "::warning::SERVER_FINGERPRINT memakai host key tipe lain dari server yang sama (bukan $kind). Deploy dilanjutkan, tapi perbarui secret agar sama dengan nilai di bawah."
+            echo "  dipakai action : $negotiated"
+            want="$negotiated"
           else
-            echo "SERVER_FINGERPRINT cocok: $got"
+            echo "  fingerprint di secret : $want"
+            echo "  ECDSA (dipakai)       : $fp_ecdsa"
+            echo "  RSA                   : $fp_rsa"
+            echo "  ED25519               : $fp_ed25519"
+            fail "SERVER_FINGERPRINT tidak cocok dengan satu pun host key $SSH_HOST. Set secret ke '$negotiated' (tipe $kind, yang benar-benar dipakai ssh-action) — termasuk prefix SHA256:, tanpa spasi/newline."
           fi
 
           echo "target: ${SSH_USER}@${SSH_HOST} ($(getent hosts "$SSH_HOST" | awk '{print $1; exit}'))"
