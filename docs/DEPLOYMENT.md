@@ -2,22 +2,32 @@
 
 Pipeline: `.github/workflows/deploy.yml` (push ke `main` atau `workflow_dispatch`).
 
+Deploy **tidak memakai SSH**. Job deploy berjalan di _self-hosted runner_ yang
+terpasang di host produksi, jadi ia mengeksekusi `docker compose` secara lokal.
+Runner yang belum siap / docker yang tidak bisa diakses gagal di job `precheck`,
+sebelum image dibangun.
+
 ```
-ci (lint + unit + integration)          ← reusable: .github/workflows/ci.yml
-  → build & push image :sha-<commit> + :latest
-      → SSH ke server:
-         0. siapkan direktori + cek docker/compose/curl (SEBELUM build)
-         1. salin docker-compose.yml + Caddyfile
-         2. tulis .env dari secret ENV_FILE_B64
-         3. recreate rustfs (kredensial dibaca ulang dari env)
-         4. pull image (tag = sha-<commit>)
-         5. tunggu MariaDB siap
-         6. backup DB ke backups/db-<timestamp>.sql
-         7. prisma migrate deploy
-         8. docker compose up -d --remove-orphans --wait
-         9. cek /health dari dalam container
-        10. smoke test lewat domain publik (Caddy + TLS ikut terbukti)
+ci (lint + unit + integration)                ← GitHub-hosted (.github/workflows/ci.yml)
+  → precheck host                             ← self-hosted (cek docker + SERVER_DIR)
+  → build & push image :sha-<commit> + :latest ← GitHub-hosted (cache gha)
+      → deploy (self-hosted, docker compose lokal):
+         1. salin docker-compose.yml + Caddyfile ke SERVER_DIR
+         2. buat .env HANYA kalau belum ada (bootstrap dari ENV_FILE_B64)
+         3. tulis IMAGE_TAG ke .env
+         4. recreate rustfs (kredensial dibaca ulang dari env)
+         5. pull image (tag = sha-<commit>)
+         6. tunggu MariaDB siap
+         7. backup DB ke backups/db-<timestamp>.sql
+         8. prisma migrate deploy
+         9. docker compose up -d --remove-orphans --wait
+        10. cek /health dari dalam container
+        11. smoke test lewat domain publik (Caddy + TLS ikut terbukti)
 ```
+
+Build sengaja tetap di GitHub-hosted runner: host produksi hanya punya ~2 GB RAM
+dan image dibangun di sana akan berebut memori dengan MariaDB. Yang dipindah ke
+self-hosted hanya bagian yang **harus** menyentuh host itu.
 
 `main` **tidak** memicu `ci.yml` sendiri: gate kualitasnya datang dari
 `workflow_call` di Deploy, supaya commit yang sama tidak divalidasi dua kali.
@@ -25,75 +35,109 @@ Job `docker` (build tanpa push) tetap jalan di PR dan push ke `development`, tap
 dimatikan saat dipanggil Deploy (`build_image: false`) karena Deploy memang
 membangun image yang sama beberapa langkah kemudian.
 
-Semua langkah memakai `set -euo pipefail` + `script_stop: true`. Kalau ada
-langkah yang gagal setelah trap dipasang, deploy **rollback otomatis** ke tag
-`sha-*` sebelumnya.
+Semua langkah skrip diawali `set -euo pipefail`, jadi berhenti di perintah
+pertama yang gagal. Kalau ada langkah yang gagal setelah trap dipasang, deploy
+**rollback otomatis** ke tag `sha-*` sebelumnya.
 
 ## Secret GitHub yang dibutuhkan
 
-| Secret               | Wajib               | Isi                                     |
-| -------------------- | ------------------- | --------------------------------------- |
-| `SERVER_HOST`        | ya                  | IP/hostname VPS                         |
-| `SERVER_USER`        | ya                  | user SSH untuk deploy                   |
-| `SERVER_KEY`         | ya                  | private key SSH (tanpa passphrase)      |
-| `ENV_FILE_B64`       | ya                  | isi file `.env` produksi, **di-base64** |
-| `GHCR_TOKEN`         | jika package privat | PAT dengan scope `read:packages`        |
-| `SERVER_FINGERPRINT` | disarankan          | `ssh-keyscan -t ed25519 <host>`         |
+| Secret         | Wajib | Isi                                            |
+| -------------- | ----- | ---------------------------------------------- |
+| `ENV_FILE_B64` | tidak | isi `.env` produksi, **di-base64** (bootstrap) |
 
-Membuat `ENV_FILE_B64`:
+`SERVER_HOST` / `SERVER_USER` / `SERVER_KEY` / `SERVER_FINGERPRINT` dan
+`GHCR_TOKEN` **tidak dipakai lagi**: deploy tidak memakai SSH, dan pull image
+memakai `GITHUB_TOKEN` bawaan workflow (`packages: read`). Kalau secret lama
+masih ada, tidak mengganggu — tapi boleh dihapus.
+
+`ENV_FILE_B64` **hanya** dibaca kalau `SERVER_DIR/.env` belum ada. Pada deploy
+normal, `.env` di server dipertahankan apa adanya. Ini perubahan perilaku yang
+penting: sebelumnya `.env` ditimpa dari secret setiap deploy, dan itu pernah
+menghapus perbaikan `CORS_ORIGINS` di server sehingga admin & mitra langsung
+diblokir CORS.
+
+Membuat `ENV_FILE_B64` (untuk memulihkan host dari nol):
 
 ```bash
 base64 -w0 .env   # salin seluruh output, tempel sebagai nilai secret
 ```
 
-`ENV_FILE_B64` dikirim sebagai environment variable lalu di-decode di server,
-bukan diinterpolasi ke dalam teks skrip. Jadi password berisi `$`, backtick,
-atau baris `EOF` tidak akan merusak `.env`.
+Dikirim sebagai environment variable lalu di-decode di host, bukan
+diinterpolasi ke dalam teks skrip — password berisi `$`, backtick, atau baris
+`EOF` tidak merusak `.env`.
 
 Environment GitHub `production` dipakai job deploy (bisa diberi required
-reviewer). Job gagal kalau environment belum dibuat? Tidak — environment dibuat
-otomatis, tapi tanpa reviewer sampai dikonfigurasi.
+reviewer). Environment dibuat otomatis, tapi tanpa reviewer sampai
+dikonfigurasi.
 
-## Troubleshooting SSH deploy
+## Runner self-hosted
 
-Dua kegagalan ini paling sering muncul, dan keduanya masalah **secret**, bukan
-kode.
+Terpasang di host produksi:
 
-**`ssh.ParsePrivateKey: ssh: no key found`** — `SERVER_KEY` bukan private key
-yang bisa dibaca. Penyebab umum: isinya file `.pub`, secret kosong, atau hanya
-satu baris. Isi dengan **seluruh** isi private key, termasuk baris
-`-----BEGIN ... KEY-----` / `-----END ... KEY-----`:
+| Item    | Nilai                                                     |
+| ------- | --------------------------------------------------------- |
+| Dir     | `/home/taslim/actions-runner`                             |
+| Service | `actions.runner.rakhathegreat-arxiva-backend.Taslim`      |
+| Label   | `self-hosted` (workflow memakai `runs-on: [self-hosted]`) |
+| User    | `taslim` (anggota grup `docker`)                          |
 
-```bash
-cat ~/.ssh/arxiva_deploy   # salin SELURUH output ke secret SERVER_KEY
-```
-
-Pastikan public key pasangannya benar-benar ada di server:
-
-```bash
-ssh-keygen -lf ~/.ssh/arxiva_deploy.pub                       # fingerprint key
-ssh <user>@<host> 'ssh-keygen -lf ~/.ssh/authorized_keys'     # yang diizinkan
-```
-
-**`ssh: host key fingerprint mismatch`** — `SERVER_FINGERPRINT` bukan
-fingerprint **host key ed25519** server tujuan (atau `SERVER_HOST` menunjuk
-server lain). `ssh-keyscan` tanpa `-t` bisa mengembalikan RSA/ECDSA, yang
-fingerprint-nya berbeda — itu penyebab tersering. Ambil yang benar:
+Kalau runner dijalankan lewat `./run.sh` saja, ia **mati saat logout/reboot** dan
+job deploy akan menggantung di status "Waiting for a runner". Pasang sebagai
+service:
 
 ```bash
-ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -
-# contoh: SHA256:AA/lLT6PzS0qrBXKOv1RHd/dbmvVk+PFTEB7UTbpr18
+cd ~/actions-runner
+sudo ./svc.sh install taslim
+sudo ./svc.sh start
+sudo ./svc.sh status        # harus "active (running)" + "Listening for Jobs"
+systemctl is-enabled actions.runner.rakhathegreat-arxiva-backend.Taslim
 ```
 
-Nilai secret-nya adalah `SHA256:...` **dengan** prefix, persis seperti output
-di atas.
+Prasyarat di host: `git` (dipakai `actions/checkout`), Docker + plugin compose,
+`curl`, dan user runner bisa menulis ke `SERVER_DIR`.
 
-**`Connection refused` / timeout** — biasanya firewall; pipeline hanya butuh
-port 22, 80, dan 443 terbuka.
+> **Keamanan.** Repo ini publik dan runner berada di host produksi dengan akses
+> Docker (efektif root). Karena itu job yang dipicu `pull_request` **tidak boleh**
+> dijalankan di runner ini — siapa pun yang mengirim PR bisa mengeksekusi kode di
+> server. `ci.yml` karenanya tetap di GitHub-hosted, dan job `deploy` hanya
+> berjalan pada push ke `main` / `workflow_dispatch`.
 
-> Catatan: `script_stop` **bukan** input yang sah untuk `appleboy/ssh-action`
-> v1.2.x (hanya menghasilkan warning). Skrip tetap berhenti di langkah pertama
-> yang gagal karena diawali `set -euo pipefail`.
+Kalau nanti ada runner self-hosted lain, tambahkan label khusus (mis. `taslim`)
+dan persempit `runs-on` agar deploy tidak mendarat di mesin yang salah.
+
+## Troubleshooting deploy
+
+**Job menggantung "Waiting for a runner to pick up this job"** — service runner
+tidak jalan atau offline:
+
+```bash
+sudo systemctl status actions.runner.rakhathegreat-arxiva-backend.Taslim
+journalctl -u actions.runner.rakhathegreat-arxiva-backend.Taslim -n 30
+```
+
+**`cannot connect to the Docker daemon` / `permission denied` saat `docker
+info`** — user runner belum masuk grup `docker`. Perbaiki lalu restart service:
+
+```bash
+sudo usermod -aG docker taslim
+sudo systemctl restart actions.runner.rakhathegreat-arxiva-backend.Taslim
+```
+
+**`pull access denied` / `unauthorized` saat `docker compose pull backend`** —
+package GHCR privat dan `GITHUB_TOKEN` tidak cukup. Beri job `packages: read`
+(sekarang sudah), atau jadikan package-nya publik.
+
+**Deploy gagal dengan pesan `.env belum ada dan secret ENV_FILE_B64 kosong`** —
+host baru. Isi secret `ENV_FILE_B64` sekali, lalu deploy berikutnya tidak lagi
+membutuhkannya.
+
+**`No space left on device`** — image lama hanya dibersihkan yang berlabel repo
+ini (>336 jam). Cek manual:
+
+```bash
+docker system df
+docker image prune -af --filter "until=336h" --filter "label=org.opencontainers.image.source=https://github.com/rakhathegreat/arxiva-backend"
+```
 
 ## Prasyarat server
 
@@ -126,19 +170,23 @@ port 22, 80, dan 443 terbuka.
   spesifik ke `CORS_ORIGINS` kalau memang perlu.
 
 - `TRUST_PROXY` **disuntik pipeline** (`TRUST_PROXY=1`) kalau tidak ada di
-  `ENV_FILE_B64`, karena topologi di compose selalu Caddy → backend. Tanpa ini
+  `.env`, karena topologi di compose selalu Caddy → backend. Tanpa ini
   `express-rate-limit` memakai IP Caddy untuk semua klien, sehingga **satu
   pengunjung bisa mengunci login semua orang**. Set nilai lain hanya kalau hop
   proxy-nya berbeda.
 
-- Direktori `/home/taslim/deploy` (lihat `SERVER_DIR` di workflow). Pipeline
-  membuatnya sendiri (`mkdir -p`) dan user deploy harus bisa menulis ke sana,
-  karena pipeline menulis `.env` dan `backups/`.
+- Direktori `/home/taslim/deploy` (lihat `SERVER_DIR` di workflow). Runner
+  membuatnya sendiri (`mkdir -p`) dan user runner harus bisa menulis ke sana,
+  karena pipeline menulis `.env`, `docker-compose.yml`, `Caddyfile`, dan
+  `backups/`.
 
 Yang **tidak** perlu disiapkan manual di server: `docker-compose.yml` dan
-`Caddyfile` disalin dari repo setiap deploy (langkah "Sync stack config").
-Jadi perubahan compose/Caddy ikut ter-deploy, dan server baru cukup punya
-Docker + user SSH.
+`Caddyfile` disalin dari repo setiap deploy. Jadi perubahan compose/Caddy ikut
+ter-deploy, dan server baru cukup punya Docker + runner terpasang.
+
+Yang **tetap** milik server dan tidak disentuh pipeline: `.env` dan `backups/`.
+Artinya mengubah `CORS_ORIGINS` atau kredensial kini dilakukan di `.env` server
+(atau lewat secret `ENV_FILE_B64` hanya saat host benar-benar baru).
 
 Pipeline juga menuliskan `IMAGE_TAG` ke `.env` setiap deploy, sehingga
 `docker compose up -d` manual di server memakai versi yang sedang dirilis —
@@ -220,7 +268,7 @@ sudah ada (env hanya dipakai saat inisialisasi volume). Urutannya:
 docker compose exec mariadb mariadb -uroot -p'<root-lama>' -e \
   "ALTER USER 'admin'@'%' IDENTIFIED BY '<baru>'; ALTER USER 'root'@'localhost' IDENTIFIED BY '<root-baru>'; FLUSH PRIVILEGES;"
 
-# 2. baru perbarui .env (dan secret ENV_FILE_B64), lalu
+# 2. baru perbarui .env, lalu
 docker compose up -d
 ```
 
@@ -290,8 +338,8 @@ sed -i \
 grep -q '^STORAGE_REGION=' .env || echo "STORAGE_REGION=us-east-1" >> .env
 ```
 
-Lalu perbarui secret GitHub `ENV_FILE_B64` (`base64 -w0 .env`) sebelum deploy
-berikutnya.
+Lalu sesuaikan juga secret GitHub `ENV_FILE_B64` (`base64 -w0 .env`) — hanya
+relevan kalau `.env` server nanti dibangun ulang dari nol.
 
 ### Path publik: `/minio/` → `/storage/`
 

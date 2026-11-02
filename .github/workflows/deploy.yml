@@ -23,186 +23,84 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  # Deploy berjalan di self-hosted runner yang terpasang DI HOST PRODUKSI, jadi
+  # tidak ada SSH sama sekali: runner langsung menjalankan `docker compose` di
+  # direktori ini. Konsekuensinya tidak ada lagi SERVER_KEY / SERVER_HOST /
+  # SERVER_FINGERPRINT yang bisa salah, dan `.env` tetap milik server (tidak
+  # ditimpa tiap deploy).
   SERVER_DIR: /home/taslim/deploy
   IMAGE_NAME: ghcr.io/${{ github.repository }}
   HEALTH_URL: https://api-taslim.duckdns.org/health
 
 jobs:
   # Gate kualitas: build & deploy hanya jalan kalau lint + semua tes lulus.
-  # `build_image: false` mematikan job `docker` di CI: Deploy membangun image
-  # yang sama beberapa langkah kemudian, jadi membangunnya dua kali hanya
-  # membuang waktu runner.
+  # `build_image: false` mematikan job `docker` di CI karena job `build` di bawah
+  # membangun image yang sama.
+  #
+  # Job ini SENGAJA tetap di GitHub-hosted runner. Repo ini publik, dan runner
+  # self-hosted berada di host produksi dengan akses Docker (efektif root):
+  # kalau job yang dipicu PR dijalankan di sana, siapa pun yang mengirim PR bisa
+  # mengeksekusi kode di server produksi.
   ci:
     uses: ./.github/workflows/ci.yml
     with:
       build_image: false
 
-  deploy:
-    name: build & deploy
+  # Diperiksa SEBELUM build supaya runner yang belum siap (docker tidak
+  # terpasang, user tidak masuk grup docker, direktori tidak bisa ditulisi)
+  # gagal dalam hitungan detik, bukan setelah beberapa menit membangun image.
+  precheck:
+    name: precheck host
     needs: ci
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    steps:
+      - name: Prasyarat di host Docker
+        env:
+          SERVER_DIR: ${{ env.SERVER_DIR }}
+        run: |
+          set -euo pipefail
+          echo "host: $(hostname) ($(uname -m))"
+
+          for c in docker git curl cp; do
+            command -v "$c" >/dev/null 2>&1 || {
+              echo "::error::$c tidak terpasang di host runner."
+              exit 1
+            }
+          done
+          docker compose version
+
+          # Pesan khusus: user runner dulu harus masuk grup `docker`, kalau tidak
+          # setiap perintah compose gagal dengan "permission denied".
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::user runner tidak bisa mengakses Docker daemon. Tambahkan user tersebut ke grup 'docker' lalu restart service runner."
+            exit 1
+          fi
+
+          mkdir -p "$SERVER_DIR"
+          [ -w "$SERVER_DIR" ] || {
+            echo "::error::$SERVER_DIR tidak bisa ditulisi oleh user runner."
+            exit 1
+          }
+
+          if [ -f "$SERVER_DIR/.env" ]; then
+            echo "$SERVER_DIR/.env sudah ada — akan DIPERTAHANKAN (tidak ditimpa)"
+          else
+            echo "::warning::$SERVER_DIR/.env belum ada — akan dibuat dari secret ENV_FILE_B64"
+          fi
+
+          df -h "$SERVER_DIR" | tail -1
+
+  build:
+    name: build & push image
+    needs: precheck
     runs-on: ubuntu-latest
-    timeout-minutes: 40
-    environment:
-      name: production
-      url: https://api-taslim.duckdns.org/health
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
-
     steps:
       - uses: actions/checkout@v5
-
-      # Diagnosa prasyarat SSH SEBELUM menyentuh server.
-      #
-      # easyssh-proxy (yang dipakai ssh-action) hanya mencetak
-      # "ssh.ParsePrivateKey: ssh: no key found" lalu LANJUT tanpa auth, dan
-      # host key diperiksa lebih dulu — jadi kegagalan key muncul sebagai
-      # "host key fingerprint mismatch". Dua baris itu tidak menunjukkan secret
-      # mana yang salah, sehingga sering butuh berkali-kali percobaan. Di sini
-      # setiap secret divalidasi dan pesannya dibuat spesifik.
-      - name: Validate SSH secrets
-        id: ssh
-        shell: bash
-        env:
-          SSH_KEY: ${{ secrets.SERVER_KEY }}
-          SSH_HOST: ${{ secrets.SERVER_HOST }}
-          SSH_USER: ${{ secrets.SERVER_USER }}
-          SSH_FP: ${{ secrets.SERVER_FINGERPRINT }}
-        run: |
-          set -euo pipefail
-          fail() { echo "::error::$1"; exit 1; }
-
-          [ -n "${SSH_HOST:-}" ] || fail "secret SERVER_HOST kosong."
-          [ -n "${SSH_USER:-}" ] || fail "secret SERVER_USER kosong."
-          [ -n "${SSH_KEY:-}" ] || fail "secret SERVER_KEY kosong."
-
-          # PEM decoder mencari baris "-----BEGIN ... PRIVATE KEY-----" persis;
-          # akhiran CR membuatnya gagal dengan "no key found".
-          if printf '%s' "$SSH_KEY" | grep -q $'\r'; then
-            fail "SERVER_KEY mengandung karakter CR (\\r), biasanya karena di-paste dari editor Windows (Notepad). Simpan key dengan akhir baris LF lalu tempel ulang."
-          fi
-
-          # Baris kosong di awal (sering ikut ter-paste) tidak merusak apa pun
-          # kalau dibuang — jadi dibuang diam-diam, bukan dijadikan error.
-          trimmed="$(printf '%s\n' "$SSH_KEY" | sed '/[^[:space:]]/,$!d')"
-
-          key="$RUNNER_TEMP/deploy_key"
-          # Harus diakhiri newline: tanpa itu libcrypto menolak dengan
-          # "error in libcrypto" walau key-nya sah.
-          printf '%s\n' "$trimmed" > "$key"
-          chmod 600 "$key"
-
-          # Hanya spasi di AKHIR baris yang dibuang. Jangan `tr -d '[:space:]'`:
-          # itu ikut menghapus spasi di "-----BEGIN " sehingga prefix-nya tidak
-          # pernah cocok dan key yang sah ikut ditolak.
-          first_line="$(head -n1 "$key" | sed 's/[[:space:]]*$//')"
-          if [ "${first_line#-----BEGIN }" = "$first_line" ]; then
-            # Sebutkan BENTUK isinya, bukan nilainya — supaya tidak ada bagian
-            # rahasia yang tercetak di log publik.
-            if printf '%s' "$trimmed" | grep -qE '^(ssh-|ecdsa-)'; then
-              fail "SERVER_KEY berisi PUBLIC key (diawali '$(printf '%s' "$trimmed" | cut -c1-11)'), bukan private key. Salin dari file TANPA akhiran .pub — mis. ~/.ssh/arxiva_deploy, bukan ~/.ssh/arxiva_deploy.pub."
-            elif printf '%s' "$trimmed" | grep -q 'LS0tLS1CRUdJTi'; then
-              fail "SERVER_KEY berisi private key yang sudah di-BASE64 (diawali 'LS0tLS1CRUdJTi'). Tempel isi aslinya yang dimulai '-----BEGIN OPENSSH PRIVATE KEY-----', bukan hasil base64."
-            elif printf '%s' "$trimmed" | grep -qi 'PRIVATE KEY'; then
-              fail "SERVER_KEY memuat teks 'PRIVATE KEY' tapi tidak di baris pertama (panjang total ${#trimmed} karakter). Pastikan tidak ada teks lain sebelum '-----BEGIN', dan baris BEGIN/END tidak terpotong."
-            else
-              fail "SERVER_KEY tidak memuat blok private key sama sekali (panjang total ${#trimmed} karakter). Tempel SELURUH isi file private key, termasuk baris '-----BEGIN' dan '-----END', tanpa tanda kutip."
-            fi
-          fi
-          if ! pub="$(ssh-keygen -y -f "$key" 2>/dev/null)"; then
-            fail "SERVER_KEY tidak bisa diparse ssh-keygen. Pastikan isinya utuh (baris BEGIN/END tidak terpotong) dan key tidak ber-passphrase."
-          fi
-          echo "SERVER_KEY valid: $(printf '%s\n' "$pub" | ssh-keygen -lf - | awk '{print $1, $2}')"
-
-          # Host key yang divalidasi action BUKAN selalu ed25519.
-          #
-          # Klien Go (golang.org/x/crypto/ssh, dipakai ssh-action) memilih host
-          # key menurut defaultHostKeyAlgos, dan urutannya menaruh ECDSA di
-          # ATAS ed25519:
-          #
-          #   ecdsa-sha2-nistp256 → nistp384 → nistp521
-          #   → rsa-sha2-256 → rsa-sha2-512 → ssh-rsa → ssh-ed25519
-          #
-          # Server OpenSSH yang punya ketiganya akan dinegosiasikan sebagai
-          # ECDSA oleh Go (sementara klien OpenSSH memilih ed25519). Jadi
-          # membandingkan secret dengan fingerprint ed25519 selalu mismatch
-          # walau secret-nya benar.
-          keys="$(timeout 20 ssh-keyscan -t ecdsa,rsa,ed25519 "$SSH_HOST" 2>/dev/null || true)"
-          [ -n "$keys" ] || fail "tidak bisa mengambil host key dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
-
-          fp_row() {
-            printf '%s\n' "$keys" | awk -v kt="$1" '$2 == kt { print; exit }' \
-              | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' || true
-          }
-
-          fp_ecdsa="$(fp_row ecdsa-sha2-nistp256)"
-          [ -n "$fp_ecdsa" ] || fp_ecdsa="$(fp_row ecdsa-sha2-nistp384)"
-          [ -n "$fp_ecdsa" ] || fp_ecdsa="$(fp_row ecdsa-sha2-nistp521)"
-          fp_rsa="$(fp_row ssh-rsa)"
-          fp_ed25519="$(fp_row ssh-ed25519)"
-
-          # Urutan yang sama dengan defaultHostKeyAlgos: yang pertama tersedia
-          # itulah yang akan dipakai handshake.
-          negotiated=""; kind=""
-          if [ -n "$fp_ed25519" ]; then
-            negotiated="$fp_ed25519"
-            kind="ED25519"
-          elif [ -n "$fp_ecdsa" ]; then
-            negotiated="$fp_ecdsa"
-            kind="ECDSA"
-          elif [ -n "$fp_rsa" ]; then
-            negotiated="$fp_rsa"
-            kind="RSA"
-          fi
-          [ -n "$negotiated" ] || fail "tidak ada host key yang bisa dibaca dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
-          echo "host key yang dinegosiasikan ssh-action: $kind ($negotiated)"
-
-          want="$(printf '%s' "${SSH_FP:-}" | tr -d '[:space:]')"
-          if [ -z "$want" ]; then
-            echo "::warning::SERVER_FINGERPRINT kosong — verifikasi host key dilewati (rawan MITM)."
-            want="$negotiated"
-          elif [ "$want" = "$negotiated" ]; then
-            echo "SERVER_FINGERPRINT cocok: $negotiated"
-          elif [ "$want" = "$fp_ecdsa" ] || [ "$want" = "$fp_rsa" ] || [ "$want" = "$fp_ed25519" ]; then
-            # Secret menunjuk host key lain dari server yang SAMA — bukan tanda
-            # serangan, hanya algoritma yang berbeda. Deploy diteruskan dengan
-            # nilai yang benar-benar dipakai, tapi secret-nya perlu diperbarui.
-            echo "::warning::SERVER_FINGERPRINT memakai host key tipe lain dari server yang sama (bukan $kind). Deploy dilanjutkan, tapi perbarui secret agar sama dengan nilai di bawah."
-            echo "  dipakai action : $negotiated"
-            want="$negotiated"
-          else
-            echo "  fingerprint di secret : $want"
-            echo "  ECDSA (dipakai)       : $fp_ecdsa"
-            echo "  RSA                   : $fp_rsa"
-            echo "  ED25519               : $fp_ed25519"
-            fail "SERVER_FINGERPRINT tidak cocok dengan satu pun host key $SSH_HOST. Set secret ke '$negotiated' (tipe $kind, yang benar-benar dipakai ssh-action) — termasuk prefix SHA256:, tanpa spasi/newline."
-          fi
-
-          echo "target: ${SSH_USER}@${SSH_HOST} ($(getent hosts "$SSH_HOST" | awk '{print $1; exit}'))"
-          echo "fingerprint=$want" >> "$GITHUB_OUTPUT"
-
-      # Server hanya butuh user + key: direktori, stack config, dan .env
-      # disiapkan pipeline. Dijalankan SEBELUM build supaya secret/host yang
-      # salah atau tooling server yang kurang gagal dalam hitungan detik,
-      # bukan setelah beberapa menit mem-build image.
-      - name: Prepare server
-        uses: appleboy/ssh-action@v1.2.5
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_KEY }}
-          # Pakai hasil normalisasi dari langkah sebelumnya: spasi/newline di
-          # akhir secret akan menggagalkan perbandingan string yang ketat.
-          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
-          # TIDAK ada `script_stop` di ssh-action v1.2.x (input itu sudah
-          # dihapus; memakainya hanya menghasilkan warning). Penghentian di
-          # tengah skrip ditangani `set -euo pipefail` di awal skrip.
-          script: |
-            set -euo pipefail
-            mkdir -p "${{ env.SERVER_DIR }}"
-            command -v docker >/dev/null 2>&1 || { echo 'docker belum terpasang di server' >&2; exit 1; }
-            docker compose version >/dev/null 2>&1 || { echo "plugin 'docker compose' belum tersedia" >&2; exit 1; }
-            command -v curl >/dev/null 2>&1 || { echo 'curl belum terpasang (dipakai health check)' >&2; exit 1; }
 
       - uses: docker/setup-buildx-action@v4
 
@@ -236,196 +134,201 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Konfigurasi stack dimiliki repo, bukan server: selalu disalin ulang
-      # supaya perubahan compose/Caddy ikut ter-deploy dan server baru tidak
-      # perlu disiapkan manual. Hanya `.env` yang tetap milik server (di bawah).
-      - name: Sync stack config
-        uses: appleboy/scp-action@v1.0.0
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_KEY }}
-          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
-          source: docker-compose.yml,Caddyfile
-          target: ${{ env.SERVER_DIR }}
-          overwrite: true
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: [self-hosted]
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://api-taslim.duckdns.org/health
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
 
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1.2.5
+      - name: Deploy stack
         env:
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-          ENV_FILE_B64: ${{ secrets.ENV_FILE_B64 }}
-          # Tag immutable yang dipakai compose; `latest` tetap didorong untuk
-          # kompatibilitas, tapi deploy tidak bergantung padanya.
-          IMAGE_TAG: sha-${{ github.sha }}
+          SERVER_DIR: ${{ env.SERVER_DIR }}
           PUBLIC_URL: ${{ env.HEALTH_URL }}
           # Dipakai untuk mempersempit `docker image prune` ke image milik repo
           # ini (label dipasang docker/metadata-action).
           IMAGE_SOURCE: https://github.com/${{ github.repository }}
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_KEY }}
-          # Isi dengan output `ssh-keyscan -t ed25519 <host>` supaya host tidak
-          # bisa di-MITM. Biarkan kosong berarti verifikasi host key dilewati.
-          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
-          # env dikirim sebagai environment variable, BUKAN diinterpolasi ke
-          # dalam teks skrip — rahasia berisi $, `, atau "EOF" tidak merusak .env.
-          envs: GHCR_USER,GHCR_TOKEN,ENV_FILE_B64,IMAGE_TAG,PUBLIC_URL,IMAGE_SOURCE
-          # Sengaja tanpa `script_stop` (tidak ada di v1.2.x). Karena opsi itu
-          # tidak lagi dipakai, drone-ssh mengirim skrip sebagai SATU perintah,
-          # sehingga `set -euo pipefail` berlaku untuk keseluruhan blok — lebih
-          # benar daripada pemecahan per baris yang lama.
-          command_timeout: 15m
-          script: |
-            set -euo pipefail
-            cd "${{ env.SERVER_DIR }}"
+          # Tag immutable yang dipakai compose; `latest` tetap didorong untuk
+          # kompatibilitas, tapi deploy tidak bergantung padanya.
+          IMAGE_TAG: sha-${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          # GITHUB_TOKEN berlaku untuk GHCR repo ini (butuh `packages: read` di
+          # atas), jadi PAT terpisah tidak diperlukan lagi.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Hanya dipakai untuk bootstrap: kalau `.env` sudah ada di server,
+          # secret ini diabaikan sama sekali.
+          ENV_FILE_B64: ${{ secrets.ENV_FILE_B64 }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
 
-            # --- 1. Validasi input rahasia -------------------------------------
-            if [ -z "${ENV_FILE_B64:-}" ]; then
-              echo "ENV_FILE_B64 kosong" >&2
-              exit 1
-            fi
+          # --- 0. Konfigurasi stack -----------------------------------------
+          # Compose + Caddy dimiliki repo: selalu disalin ulang supaya perubahan
+          # ikut ter-deploy dan server baru tidak perlu disiapkan manual.
+          # `.env` TIDAK disalin — itu milik server.
+          mkdir -p "$SERVER_DIR"
+          cp -f docker-compose.yml Caddyfile "$SERVER_DIR"/
+          cd "$SERVER_DIR"
 
-            # Simpan .env lama: dipakai untuk rollback image DAN sebagai berkas
-            # pemulihan manual kalau deploy gagal.
-            if [ -f .env ]; then cp -p .env .env.bak; fi
-            PREV_IMAGE_TAG="$(sed -n 's/^IMAGE_TAG=//p' .env 2>/dev/null | tail -1 || true)"
-
+          # --- 1. .env -------------------------------------------------------
+          # Hanya dibuat kalau belum ada. Sebelumnya `.env` ditimpa dari secret
+          # setiap deploy, dan itu pernah menghapus CORS_ORIGINS yang sudah
+          # diperbaiki di server — admin & mitra langsung diblokir CORS.
+          if [ ! -f .env ]; then
+            [ -n "${ENV_FILE_B64:-}" ] || fail "$SERVER_DIR/.env belum ada dan secret ENV_FILE_B64 kosong. Isi ENV_FILE_B64 (base64 dari .env) untuk bootstrap host baru."
             umask 077
             # Decode ke berkas sementara lalu `mv`, supaya .env tidak pernah
-            # setengah tertulis kalau koneksi SSH terputus.
+            # setengah tertulis kalau proses terhenti.
             printf '%s' "$ENV_FILE_B64" | base64 -d > .env.new
             for key in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD MYSQL_DATABASE STORAGE_ACCESS_KEY STORAGE_SECRET_KEY; do
-              grep -q "^${key}=" .env.new || { echo "ENV_FILE_B64 tidak memuat ${key}" >&2; exit 1; }
+              grep -q "^${key}=" .env.new || fail "ENV_FILE_B64 tidak memuat ${key}"
             done
-            # Topologi selalu Caddy -> backend, jadi X-Forwarded-For harus
-            # dipercaya. Tanpa ini express-rate-limit memakai IP Caddy untuk
-            # semua klien (satu pengunjung bisa mengunci login semua orang).
-            grep -q '^TRUST_PROXY=' .env.new || echo 'TRUST_PROXY=1' >> .env.new
-            grep -q '^CORS_ORIGINS=' .env.new || \
-              echo '::warning::ENV_FILE_B64 tidak memuat CORS_ORIGINS — klien browser/webview akan diblokir CORS.'
-            # Tag immutable dicatat ke .env supaya `docker compose up` manual di
-            # server memakai versi yang sama, bukan `latest` yang bisa berbeda.
-            sed -i '/^IMAGE_TAG=/d' .env.new
-            echo "IMAGE_TAG=${IMAGE_TAG}" >> .env.new
             mv .env.new .env
+            echo ".env dibuat dari secret ENV_FILE_B64"
+          else
+            echo ".env dipertahankan (milik server, tidak ditimpa)"
+          fi
+          chmod 600 .env
 
-            # --- 2. Rollback otomatis kalau ada langkah yang gagal -------------
-            # Trap dipasang SEKARANG, tepat setelah `.env` ditimpa. Kalau
-            # dipasang belakangan, kegagalan di langkah berikutnya meninggalkan
-            # `.env` berisi IMAGE_TAG baru sementara container masih versi lama.
-            restore() {
-              rc=$?
-              # Jangan `[ ... ] && return` — dengan `set -e` hasil non-zero dari
-              # compound command membuat shell keluar sebelum rollback dijalankan.
-              if [ "$rc" -eq 0 ]; then return 0; fi
-              echo "::error::deploy gagal (exit=$rc) — menjalankan rollback"
-              docker compose ps >&2 || true
-              docker compose logs --tail 80 backend >&2 || true
-              if [ -n "$PREV_IMAGE_TAG" ] && [ "$PREV_IMAGE_TAG" != "${IMAGE_TAG:-}" ]; then
-                echo "rollback ke ${PREV_IMAGE_TAG}" >&2
-                sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_IMAGE_TAG}|" .env || true
-                # Backend sengaja tidak ditunggu: tujuan rollback adalah memulihkan
-                # layanan, bukan menggagalkan job lebih lama lagi.
-                docker compose up -d --no-deps backend || true
-              else
-                echo "tidak ada image sebelumnya — rollback dilewati" >&2
-              fi
-            }
-            trap restore EXIT
+          # Topologi selalu Caddy -> backend, jadi X-Forwarded-For harus
+          # dipercaya. Tanpa ini express-rate-limit memakai IP Caddy untuk
+          # semua klien (satu pengunjung bisa mengunci login semua orang).
+          grep -q '^TRUST_PROXY=' .env || echo 'TRUST_PROXY=1' >> .env
+          grep -q '^CORS_ORIGINS=' .env || \
+            echo '::warning::.env tidak memuat CORS_ORIGINS — klien browser/webview akan diblokir CORS.'
 
-            # Kredensial object storage dibaca RustFS dari env setiap start, jadi
-            # recreate dilakukan di sini supaya kredensial di `.env` baru benar-
-            # benar terpakai (bukan hanya saat container pertama kali dibuat).
-            docker compose up -d --force-recreate rustfs
-            for i in $(seq 1 30); do
-              # Port S3 hanya di-bind ke loopback, jadi cek dari dalam container.
-              if docker compose exec -T rustfs sh -c 'curl -fsS --max-time 3 http://127.0.0.1:9000/health' >/dev/null 2>&1; then break; fi
-              if [ "$i" -eq 30 ]; then echo "RustFS tidak siap" >&2; exit 1; fi
-              sleep 2
-            done
+          # Simpan .env lama: dipakai untuk rollback image DAN sebagai berkas
+          # pemulihan manual kalau deploy gagal.
+          cp -p .env .env.bak
+          PREV_IMAGE_TAG="$(sed -n 's/^IMAGE_TAG=//p' .env | tail -1 || true)"
+          # Tag dicatat ke .env supaya `docker compose up` manual di server
+          # memakai versi yang sama, bukan `latest` yang bisa berbeda.
+          sed -i '/^IMAGE_TAG=/d' .env
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> .env
 
-            # --- 3. Siapkan image ---------------------------------------------
-            if [ -n "${GHCR_TOKEN:-}" ]; then
-              printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          # --- 2. Rollback otomatis kalau ada langkah yang gagal --------------
+          # Trap dipasang SEKARANG, tepat setelah `.env` ditimpa. Kalau dipasang
+          # belakangan, kegagalan di langkah berikutnya meninggalkan `.env`
+          # berisi IMAGE_TAG baru sementara container masih versi lama.
+          restore() {
+            rc=$?
+            # Jangan `[ ... ] && return` — dengan `set -e` hasil non-zero dari
+            # compound command membuat shell keluar sebelum rollback dijalankan.
+            if [ "$rc" -eq 0 ]; then return 0; fi
+            echo "::error::deploy gagal (exit=$rc) — menjalankan rollback"
+            docker compose ps >&2 || true
+            docker compose logs --tail 80 backend >&2 || true
+            if [ -n "$PREV_IMAGE_TAG" ] && [ "$PREV_IMAGE_TAG" != "${IMAGE_TAG:-}" ]; then
+              echo "rollback ke ${PREV_IMAGE_TAG}" >&2
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_IMAGE_TAG}|" .env || true
+              # Backend sengaja tidak ditunggu: tujuan rollback adalah memulihkan
+              # layanan, bukan menggagalkan job lebih lama lagi.
+              docker compose up -d --no-deps backend || true
+            else
+              echo "tidak ada image sebelumnya — rollback dilewati" >&2
             fi
+          }
+          trap restore EXIT
 
-            docker compose config -q
+          # Kredensial object storage dibaca RustFS dari env setiap start, jadi
+          # recreate dilakukan di sini supaya kredensial di `.env` benar-benar
+          # terpakai (bukan hanya saat container pertama kali dibuat).
+          docker compose up -d --force-recreate rustfs
+          for i in $(seq 1 30); do
+            # Port S3 hanya di-bind ke loopback, jadi cek dari dalam container.
+            if docker compose exec -T rustfs sh -c 'curl -fsS --max-time 3 http://127.0.0.1:9000/health' >/dev/null 2>&1; then break; fi
+            if [ "$i" -eq 30 ]; then echo "RustFS tidak siap" >&2; exit 1; fi
+            sleep 2
+          done
 
-            # Pull hanya image backend; image lain memakai tag fixed/floating
-            # dan tidak boleh ikut ter-upgrade diam-diam saat deploy.
-            docker compose pull backend
+          # --- 3. Siapkan image ---------------------------------------------
+          if [ -n "${GHCR_TOKEN:-}" ]; then
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          else
+            echo "::warning::GHCR_TOKEN kosong — pull hanya berhasil bila package publik."
+          fi
 
-            # --- 4. Database ---------------------------------------------------
-            docker compose up -d mariadb
-            for i in $(seq 1 30); do
-              if docker compose exec -T mariadb \
-                sh -c 'exec mariadb-admin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
-                break
-              fi
-              if [ "$i" -eq 30 ]; then echo "MariaDB tidak siap" >&2; exit 1; fi
-              sleep 2
-            done
+          docker compose config -q
 
-            # Backup sebelum migrasi. Nama database dibaca dari env container,
-            # bukan hardcode — sempat tertulis `arxiva` padahal DB produksi
-            # bernama lain, sehingga backup menghasilkan dump kosong.
-            mkdir -p backups
-            BACKUP="backups/db-$(date +%Y%m%d-%H%M%S).sql"
-            docker compose exec -T mariadb \
-              sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events "$MYSQL_DATABASE"' \
-              > "$BACKUP"
-            if [ ! -s "$BACKUP" ] || [ "$(wc -c < "$BACKUP")" -lt 1024 ]; then
-              echo "backup tidak wajar (ukuran $(wc -c < "$BACKUP") byte): $BACKUP" >&2
-              exit 1
+          # Pull hanya image backend; image lain memakai tag fixed/floating dan
+          # tidak boleh ikut ter-upgrade diam-diam saat deploy.
+          docker compose pull backend
+
+          # --- 4. Database ---------------------------------------------------
+          docker compose up -d mariadb
+          for i in $(seq 1 30); do
+            if docker compose exec -T mariadb \
+              sh -c 'exec mariadb-admin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+              break
             fi
-            echo "backup: $BACKUP ($(wc -c < "$BACKUP") byte)"
-            find backups -name 'db-*.sql' -type f -mtime +7 -delete
+            if [ "$i" -eq 30 ]; then echo "MariaDB tidak siap" >&2; exit 1; fi
+            sleep 2
+          done
 
-            # Migrasi dijalankan di container sekali-pakai, bukan saat start
-            # container produksi (Dockerfile CMD hanya `node app.js`).
-            docker compose run --rm --no-deps backend npx prisma migrate deploy
+          # Backup sebelum migrasi. Nama database dibaca dari env container, bukan
+          # hardcode — sempat tertulis `arxiva` padahal DB produksi bernama lain,
+          # sehingga backup menghasilkan dump kosong.
+          mkdir -p backups
+          BACKUP="backups/db-$(date +%Y%m%d-%H%M%S).sql"
+          docker compose exec -T mariadb \
+            sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events "$MYSQL_DATABASE"' \
+            > "$BACKUP"
+          if [ ! -s "$BACKUP" ] || [ "$(wc -c < "$BACKUP")" -lt 1024 ]; then
+            echo "backup tidak wajar (ukuran $(wc -c < "$BACKUP") byte): $BACKUP" >&2
+            exit 1
+          fi
+          echo "backup: $BACKUP ($(wc -c < "$BACKUP") byte)"
+          find backups -name 'db-*.sql' -type f -mtime +7 -delete
 
-            # --- 5. Naikkan stack ---------------------------------------------
-            docker compose up -d --remove-orphans --wait --wait-timeout 240
+          # Migrasi dijalankan di container sekali-pakai, bukan saat start
+          # container produksi (Dockerfile CMD hanya `node app.js`).
+          docker compose run --rm --no-deps backend npx prisma migrate deploy
 
-            # (a) Health check dari dalam container: membuktikan proses hidup.
-            healthy=0
-            for i in $(seq 1 12); do
-              if docker compose exec -T backend node -e \
-                "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
-                echo "health check internal OK"
-                healthy=1
+          # --- 5. Naikkan stack ----------------------------------------------
+          docker compose up -d --remove-orphans --wait --wait-timeout 240
+
+          # (a) Health check dari dalam container: membuktikan proses hidup.
+          healthy=0
+          for i in $(seq 1 12); do
+            if docker compose exec -T backend node -e \
+              "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+              echo "health check internal OK"
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$healthy" -eq 1 ] || { echo "health check internal gagal" >&2; exit 1; }
+
+          # (b) Smoke test lewat domain publik: membuktikan Caddy, TLS, dan rute
+          # proxy ikut sehat — bukan hanya proses backend-nya.
+          if [ -n "${PUBLIC_URL:-}" ]; then
+            public_ok=0
+            for i in $(seq 1 6); do
+              if curl -fsS --max-time 5 "$PUBLIC_URL" >/dev/null 2>&1; then
+                echo "smoke test publik OK ($PUBLIC_URL)"
+                public_ok=1
                 break
               fi
               sleep 5
             done
-            [ "$healthy" -eq 1 ] || { echo "health check internal gagal" >&2; exit 1; }
+            [ "$public_ok" -eq 1 ] || { echo "smoke test publik gagal: $PUBLIC_URL" >&2; exit 1; }
+          fi
 
-            # (b) Smoke test lewat domain publik: membuktikan Caddy, TLS, dan
-            # rute proxy ikut sehat — bukan hanya proses backend-nya.
-            if [ -n "${PUBLIC_URL:-}" ]; then
-              public_ok=0
-              for i in $(seq 1 6); do
-                if curl -fsS --max-time 5 "$PUBLIC_URL" >/dev/null 2>&1; then
-                  echo "smoke test publik OK ($PUBLIC_URL)"
-                  public_ok=1
-                  break
-                fi
-                sleep 5
-              done
-              [ "$public_ok" -eq 1 ] || { echo "smoke test publik gagal: $PUBLIC_URL" >&2; exit 1; }
-            fi
+          # Bersihkan image lama MILIK REPO INI SAJA. `docker image prune -af`
+          # tanpa filter menghapus cache semua aplikasi di host yang sama; label
+          # source dipasang metadata-action pada setiap image kita. Image yang
+          # sedang dipakai container tidak ikut terhapus.
+          if [ -n "${IMAGE_SOURCE:-}" ]; then
+            docker image prune -af --filter "until=336h" --filter "label=org.opencontainers.image.source=${IMAGE_SOURCE}" >/dev/null
+          fi
 
-            # Bersihkan image lama MILIK REPO INI SAJA. `docker image prune -af`
-            # tanpa filter menghapus cache semua aplikasi di host yang sama;
-            # label source dipasang metadata-action pada setiap image kita.
-            # Image yang sedang dipakai container tidak ikut terhapus.
-            if [ -n "${IMAGE_SOURCE:-}" ]; then
-              docker image prune -af --filter "until=336h" --filter "label=org.opencontainers.image.source=${IMAGE_SOURCE}" >/dev/null
-            fi
-
-            trap - EXIT
-            echo "deploy selesai: ${IMAGE_TAG}"
+          trap - EXIT
+          echo "deploy selesai: ${IMAGE_TAG}"
