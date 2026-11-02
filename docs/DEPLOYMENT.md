@@ -67,15 +67,22 @@ otomatis, tapi tanpa reviewer sampai dikonfigurasi.
   production berarti **semua** origin browser ditolak (request tetap diproses,
   tapi browser memblokir responsnya — gejalanya
   `Origin http://localhost:1420 is not allowed by Access-Control-Allow-Origin`).
-  Untuk menjalankan aplikasi desktop dengan `npm run tauri dev` melawan API
-  production:
+  Aplikasi admin & mitra sekarang SPA yang di-host di Vercel, jadi origin
+  produksinya wajib terdaftar:
 
   ```
-  CORS_ORIGINS=http://localhost:1420,http://127.0.0.1:1420,http://localhost:1421,http://127.0.0.1:1421
+  CORS_ORIGINS=https://taslim-admin.vercel.app,https://taslim-mitra.vercel.app,http://localhost:5173,http://127.0.0.1:5173,http://localhost:1420,http://127.0.0.1:1420
   ```
 
-  Origin di luar daftar tetap tidak mendapat header CORS. Jangan pakai `*`:
-  middleware mengirim `credentials: true`, dan wildcard tidak sah untuk itu.
+  Dua origin pertama produksi (Vercel), sisanya untuk `npm run dev` (Vite 5173)
+  dan mobile Tauri (1420). Origin di luar daftar tetap tidak mendapat header
+  CORS. Jangan pakai `*`: middleware mengirim `credentials: true`, dan wildcard
+  tidak sah untuk itu.
+
+  Pencocokan bersifat **persis** (`includes`), tanpa wildcard. Artinya URL
+  _preview deployment_ Vercel (`taslim-admin-git-<branch>-<user>.vercel.app`)
+  **tidak** diizinkan; uji di domain produksi, atau tambahkan URL preview
+  spesifik ke `CORS_ORIGINS` kalau memang perlu.
 
 - `TRUST_PROXY` **disuntik pipeline** (`TRUST_PROXY=1`) kalau tidak ada di
   `ENV_FILE_B64`, karena topologi di compose selalu Caddy → backend. Tanpa ini
