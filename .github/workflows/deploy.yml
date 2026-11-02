@@ -76,21 +76,39 @@ jobs:
           [ -n "${SSH_USER:-}" ] || fail "secret SERVER_USER kosong."
           [ -n "${SSH_KEY:-}" ] || fail "secret SERVER_KEY kosong."
 
-          key="$RUNNER_TEMP/deploy_key"
-          # Harus diakhiri newline: tanpa itu libcrypto menolak dengan
-          # "error in libcrypto" walau key-nya sah.
-          printf '%s\n' "$SSH_KEY" > "$key"
-          chmod 600 "$key"
-
           # PEM decoder mencari baris "-----BEGIN ... PRIVATE KEY-----" persis;
           # akhiran CR membuatnya gagal dengan "no key found".
           if printf '%s' "$SSH_KEY" | grep -q $'\r'; then
-            fail "SERVER_KEY mengandung karakter CR (\\r), biasanya karena di-paste dari editor Windows. Simpan key dengan akhir baris LF lalu tempel ulang."
+            fail "SERVER_KEY mengandung karakter CR (\\r), biasanya karena di-paste dari editor Windows (Notepad). Simpan key dengan akhir baris LF lalu tempel ulang."
           fi
-          case "$(head -n1 "$key")" in
-            '-----BEGIN '*) ;;
-            *) fail "SERVER_KEY tidak diawali '-----BEGIN ... PRIVATE KEY-----'. Kemungkinan isinya file .pub atau bukan private key. Tempel SELURUH isi private key, termasuk baris BEGIN/END." ;;
-          esac
+
+          # Baris kosong di awal (sering ikut ter-paste) tidak merusak apa pun
+          # kalau dibuang — jadi dibuang diam-diam, bukan dijadikan error.
+          trimmed="$(printf '%s\n' "$SSH_KEY" | sed '/[^[:space:]]/,$!d')"
+
+          key="$RUNNER_TEMP/deploy_key"
+          # Harus diakhiri newline: tanpa itu libcrypto menolak dengan
+          # "error in libcrypto" walau key-nya sah.
+          printf '%s\n' "$trimmed" > "$key"
+          chmod 600 "$key"
+
+          # Hanya spasi di AKHIR baris yang dibuang. Jangan `tr -d '[:space:]'`:
+          # itu ikut menghapus spasi di "-----BEGIN " sehingga prefix-nya tidak
+          # pernah cocok dan key yang sah ikut ditolak.
+          first_line="$(head -n1 "$key" | sed 's/[[:space:]]*$//')"
+          if [ "${first_line#-----BEGIN }" = "$first_line" ]; then
+            # Sebutkan BENTUK isinya, bukan nilainya — supaya tidak ada bagian
+            # rahasia yang tercetak di log publik.
+            if printf '%s' "$trimmed" | grep -qE '^(ssh-|ecdsa-)'; then
+              fail "SERVER_KEY berisi PUBLIC key (diawali '$(printf '%s' "$trimmed" | cut -c1-11)'), bukan private key. Salin dari file TANPA akhiran .pub — mis. ~/.ssh/arxiva_deploy, bukan ~/.ssh/arxiva_deploy.pub."
+            elif printf '%s' "$trimmed" | grep -q 'LS0tLS1CRUdJTi'; then
+              fail "SERVER_KEY berisi private key yang sudah di-BASE64 (diawali 'LS0tLS1CRUdJTi'). Tempel isi aslinya yang dimulai '-----BEGIN OPENSSH PRIVATE KEY-----', bukan hasil base64."
+            elif printf '%s' "$trimmed" | grep -qi 'PRIVATE KEY'; then
+              fail "SERVER_KEY memuat teks 'PRIVATE KEY' tapi tidak di baris pertama (panjang total ${#trimmed} karakter). Pastikan tidak ada teks lain sebelum '-----BEGIN', dan baris BEGIN/END tidak terpotong."
+            else
+              fail "SERVER_KEY tidak memuat blok private key sama sekali (panjang total ${#trimmed} karakter). Tempel SELURUH isi file private key, termasuk baris '-----BEGIN' dan '-----END', tanpa tanda kutip."
+            fi
+          fi
           if ! pub="$(ssh-keygen -y -f "$key" 2>/dev/null)"; then
             fail "SERVER_KEY tidak bisa diparse ssh-keygen. Pastikan isinya utuh (baris BEGIN/END tidak terpotong) dan key tidak ber-passphrase."
           fi
