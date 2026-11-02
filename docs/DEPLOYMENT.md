@@ -54,6 +54,47 @@ Environment GitHub `production` dipakai job deploy (bisa diberi required
 reviewer). Job gagal kalau environment belum dibuat? Tidak — environment dibuat
 otomatis, tapi tanpa reviewer sampai dikonfigurasi.
 
+## Troubleshooting SSH deploy
+
+Dua kegagalan ini paling sering muncul, dan keduanya masalah **secret**, bukan
+kode.
+
+**`ssh.ParsePrivateKey: ssh: no key found`** — `SERVER_KEY` bukan private key
+yang bisa dibaca. Penyebab umum: isinya file `.pub`, secret kosong, atau hanya
+satu baris. Isi dengan **seluruh** isi private key, termasuk baris
+`-----BEGIN ... KEY-----` / `-----END ... KEY-----`:
+
+```bash
+cat ~/.ssh/arxiva_deploy   # salin SELURUH output ke secret SERVER_KEY
+```
+
+Pastikan public key pasangannya benar-benar ada di server:
+
+```bash
+ssh-keygen -lf ~/.ssh/arxiva_deploy.pub                       # fingerprint key
+ssh <user>@<host> 'ssh-keygen -lf ~/.ssh/authorized_keys'     # yang diizinkan
+```
+
+**`ssh: host key fingerprint mismatch`** — `SERVER_FINGERPRINT` bukan
+fingerprint **host key ed25519** server tujuan (atau `SERVER_HOST` menunjuk
+server lain). `ssh-keyscan` tanpa `-t` bisa mengembalikan RSA/ECDSA, yang
+fingerprint-nya berbeda — itu penyebab tersering. Ambil yang benar:
+
+```bash
+ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -
+# contoh: SHA256:AA/lLT6PzS0qrBXKOv1RHd/dbmvVk+PFTEB7UTbpr18
+```
+
+Nilai secret-nya adalah `SHA256:...` **dengan** prefix, persis seperti output
+di atas.
+
+**`Connection refused` / timeout** — biasanya firewall; pipeline hanya butuh
+port 22, 80, dan 443 terbuka.
+
+> Catatan: `script_stop` **bukan** input yang sah untuk `appleboy/ssh-action`
+> v1.2.x (hanya menghasilkan warning). Skrip tetap berhenti di langkah pertama
+> yang gagal karena diawali `set -euo pipefail`.
+
 ## Prasyarat server
 
 - Docker Engine + Docker Compose **>= 2.20** (`--wait`, `--wait-timeout`):

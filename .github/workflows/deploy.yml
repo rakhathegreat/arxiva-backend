@@ -63,7 +63,9 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_KEY }}
           fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
-          script_stop: true
+          # TIDAK ada `script_stop` di ssh-action v1.2.x (input itu sudah
+          # dihapus; memakainya hanya menghasilkan warning). Penghentian di
+          # tengah skrip ditangani `set -euo pipefail` di awal skrip.
           script: |
             set -euo pipefail
             mkdir -p "${{ env.SERVER_DIR }}"
@@ -140,7 +142,10 @@ jobs:
           # env dikirim sebagai environment variable, BUKAN diinterpolasi ke
           # dalam teks skrip — rahasia berisi $, `, atau "EOF" tidak merusak .env.
           envs: GHCR_USER,GHCR_TOKEN,ENV_FILE_B64,IMAGE_TAG,PUBLIC_URL,IMAGE_SOURCE
-          script_stop: true
+          # Sengaja tanpa `script_stop` (tidak ada di v1.2.x). Karena opsi itu
+          # tidak lagi dipakai, drone-ssh mengirim skrip sebagai SATU perintah,
+          # sehingga `set -euo pipefail` berlaku untuk keseluruhan blok — lebih
+          # benar daripada pemecahan per baris yang lama.
           command_timeout: 15m
           script: |
             set -euo pipefail
