@@ -52,6 +52,68 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Diagnosa prasyarat SSH SEBELUM menyentuh server.
+      #
+      # easyssh-proxy (yang dipakai ssh-action) hanya mencetak
+      # "ssh.ParsePrivateKey: ssh: no key found" lalu LANJUT tanpa auth, dan
+      # host key diperiksa lebih dulu — jadi kegagalan key muncul sebagai
+      # "host key fingerprint mismatch". Dua baris itu tidak menunjukkan secret
+      # mana yang salah, sehingga sering butuh berkali-kali percobaan. Di sini
+      # setiap secret divalidasi dan pesannya dibuat spesifik.
+      - name: Validate SSH secrets
+        id: ssh
+        shell: bash
+        env:
+          SSH_KEY: ${{ secrets.SERVER_KEY }}
+          SSH_HOST: ${{ secrets.SERVER_HOST }}
+          SSH_USER: ${{ secrets.SERVER_USER }}
+          SSH_FP: ${{ secrets.SERVER_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -n "${SSH_HOST:-}" ] || fail "secret SERVER_HOST kosong."
+          [ -n "${SSH_USER:-}" ] || fail "secret SERVER_USER kosong."
+          [ -n "${SSH_KEY:-}" ] || fail "secret SERVER_KEY kosong."
+
+          key="$RUNNER_TEMP/deploy_key"
+          # Harus diakhiri newline: tanpa itu libcrypto menolak dengan
+          # "error in libcrypto" walau key-nya sah.
+          printf '%s\n' "$SSH_KEY" > "$key"
+          chmod 600 "$key"
+
+          # PEM decoder mencari baris "-----BEGIN ... PRIVATE KEY-----" persis;
+          # akhiran CR membuatnya gagal dengan "no key found".
+          if printf '%s' "$SSH_KEY" | grep -q $'\r'; then
+            fail "SERVER_KEY mengandung karakter CR (\\r), biasanya karena di-paste dari editor Windows. Simpan key dengan akhir baris LF lalu tempel ulang."
+          fi
+          case "$(head -n1 "$key")" in
+            '-----BEGIN '*) ;;
+            *) fail "SERVER_KEY tidak diawali '-----BEGIN ... PRIVATE KEY-----'. Kemungkinan isinya file .pub atau bukan private key. Tempel SELURUH isi private key, termasuk baris BEGIN/END." ;;
+          esac
+          if ! pub="$(ssh-keygen -y -f "$key" 2>/dev/null)"; then
+            fail "SERVER_KEY tidak bisa diparse ssh-keygen. Pastikan isinya utuh (baris BEGIN/END tidak terpotong) dan key tidak ber-passphrase."
+          fi
+          echo "SERVER_KEY valid: $(printf '%s\n' "$pub" | ssh-keygen -lf - | awk '{print $1, $2}')"
+
+          # Host key yang benar-benar dipakai handshake adalah ed25519.
+          got="$(timeout 20 ssh-keyscan -t ed25519 "$SSH_HOST" 2>/dev/null | ssh-keygen -lf - 2>/dev/null | awk '{print $2}' | head -1)"
+          [ -n "$got" ] || fail "tidak bisa mengambil host key dari $SSH_HOST:22. Port 22 tertutup, atau SERVER_HOST salah."
+
+          want="$(printf '%s' "${SSH_FP:-}" | tr -d '[:space:]')"
+          if [ -z "$want" ]; then
+            echo "::warning::SERVER_FINGERPRINT kosong — verifikasi host key dilewati (rawan MITM)."
+          elif [ "$want" != "$got" ]; then
+            echo "  fingerprint di secret : $want"
+            echo "  fingerprint server    : $got"
+            fail "SERVER_FINGERPRINT tidak cocok dengan host key ed25519 $SSH_HOST. Set secret ke nilai 'fingerprint server' di atas — termasuk prefix SHA256:, tanpa spasi/newline."
+          else
+            echo "SERVER_FINGERPRINT cocok: $got"
+          fi
+
+          echo "target: ${SSH_USER}@${SSH_HOST} ($(getent hosts "$SSH_HOST" | awk '{print $1; exit}'))"
+          echo "fingerprint=$want" >> "$GITHUB_OUTPUT"
+
       # Server hanya butuh user + key: direktori, stack config, dan .env
       # disiapkan pipeline. Dijalankan SEBELUM build supaya secret/host yang
       # salah atau tooling server yang kurang gagal dalam hitungan detik,
@@ -62,7 +124,9 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_KEY }}
-          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          # Pakai hasil normalisasi dari langkah sebelumnya: spasi/newline di
+          # akhir secret akan menggagalkan perbandingan string yang ketat.
+          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
           # TIDAK ada `script_stop` di ssh-action v1.2.x (input itu sudah
           # dihapus; memakainya hanya menghasilkan warning). Penghentian di
           # tengah skrip ditangani `set -euo pipefail` di awal skrip.
@@ -114,7 +178,7 @@ jobs:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_KEY }}
-          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
           source: docker-compose.yml,Caddyfile
           target: ${{ env.SERVER_DIR }}
           overwrite: true
@@ -138,7 +202,7 @@ jobs:
           key: ${{ secrets.SERVER_KEY }}
           # Isi dengan output `ssh-keyscan -t ed25519 <host>` supaya host tidak
           # bisa di-MITM. Biarkan kosong berarti verifikasi host key dilewati.
-          fingerprint: ${{ secrets.SERVER_FINGERPRINT }}
+          fingerprint: ${{ steps.ssh.outputs.fingerprint }}
           # env dikirim sebagai environment variable, BUKAN diinterpolasi ke
           # dalam teks skrip — rahasia berisi $, `, atau "EOF" tidak merusak .env.
           envs: GHCR_USER,GHCR_TOKEN,ENV_FILE_B64,IMAGE_TAG,PUBLIC_URL,IMAGE_SOURCE
