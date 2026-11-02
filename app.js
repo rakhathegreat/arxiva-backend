@@ -1,40 +1,37 @@
 import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import authRoutes from './src/routes/auth.routes.js';
-import userRoutes from './src/routes/user.routes.js';
+import { config } from './src/shared/config.js';
+import { createApp } from './src/server.js';
 
-import categoryRoutes from './src/routes/category.routes.js';
-import brandRoutes from './src/routes/brand.routes.js';
-import locationRoutes from './src/routes/location.routes.js';
-import itemRoutes from './src/routes/item.routes.js';
-import transactionRoutes from './src/routes/transaction.routes.js';
+const app = createApp();
 
+const server = app.listen(config.port, config.host, () => {
+	console.log(`Backend Server is running on port ${config.port} (${config.env})`);
+});
 
-const app = express();
-const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || 'localhost';
+/**
+ * Shutdown rapi: berhenti menerima koneksi baru, lalu tutup koneksi DB.
+ * Mencegah request terpotong saat container di-restart/deploy.
+ */
+let shuttingDown = false;
+async function shutdown(signal) {
+	if (shuttingDown) return;
+	shuttingDown = true;
+	console.log(`[server] ${signal} diterima — mematikan server...`);
 
-// CORS
-app.use(cors({
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-    allowedHeaders: ["Content-Type", "Authorization"]
-}));
+	server.close(async () => {
+		try {
+			const { default: prisma } = await import('./src/shared/prisma.js');
+			await prisma.$disconnect();
+		} catch (err) {
+			console.error('[server] Gagal menutup koneksi Prisma', err);
+		}
+		process.exit(0);
+	});
 
-// Middleware
-app.use(express.json());
+	// Jaring pengaman kalau koneksi menggantung.
+	setTimeout(() => process.exit(1), 10_000).unref();
+}
 
-// Routes
-app.use("/auth", authRoutes);
-app.use("/users", userRoutes);
-app.use("/categories", categoryRoutes);
-app.use("/brands", brandRoutes);
-app.use("/locations", locationRoutes);
-app.use("/items", itemRoutes);
-app.use("/transactions", transactionRoutes);
-
-// Start the server
-app.listen(PORT, HOST, () => {
-    console.log(`Backend Server is running on port ${PORT}`);
+['SIGINT', 'SIGTERM'].forEach((signal) => {
+	process.on(signal, () => shutdown(signal));
 });

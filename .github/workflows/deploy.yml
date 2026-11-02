@@ -2,46 +2,333 @@ name: Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  # Bisa dijalankan manual untuk re-deploy (mis. setelah mengganti secret)
+  # tanpa harus membuat commit kosong.
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Alasan re-deploy (dicatat di ringkasan run)'
+        required: false
+        default: 'manual re-deploy'
 
 permissions:
   contents: read
-  packages: write
+
+# Deploy tidak boleh paralel: dua deploy bertumpuk bisa mencampur image,
+# migrasi, dan container. Yang sedang jalan TIDAK dibatalkan — membatalkan di
+# tengah migrasi lebih berbahaya daripada menunggu.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  # Deploy berjalan di self-hosted runner yang terpasang DI HOST PRODUKSI, jadi
+  # tidak ada SSH sama sekali: runner langsung menjalankan `docker compose` di
+  # direktori ini. Konsekuensinya tidak ada lagi SERVER_KEY / SERVER_HOST /
+  # SERVER_FINGERPRINT yang bisa salah, dan `.env` tetap milik server (tidak
+  # ditimpa tiap deploy).
+  SERVER_DIR: /home/taslim/deploy
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  HEALTH_URL: https://api-taslim.duckdns.org/health
 
 jobs:
-  deploy:
-    runs-on: ubuntu-latest
+  # Gate kualitas: build & deploy hanya jalan kalau lint + semua tes lulus.
+  # `build_image: false` mematikan job `docker` di CI karena job `build` di bawah
+  # membangun image yang sama.
+  #
+  # Job ini SENGAJA tetap di GitHub-hosted runner. Repo ini publik, dan runner
+  # self-hosted berada di host produksi dengan akses Docker (efektif root):
+  # kalau job yang dipicu PR dijalankan di sana, siapa pun yang mengirim PR bisa
+  # mengeksekusi kode di server produksi.
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      build_image: false
 
+  # Diperiksa SEBELUM build supaya runner yang belum siap (docker tidak
+  # terpasang, user tidak masuk grup docker, direktori tidak bisa ditulisi)
+  # gagal dalam hitungan detik, bukan setelah beberapa menit membangun image.
+  precheck:
+    name: precheck host
+    needs: ci
+    runs-on: [self-hosted]
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - name: Prasyarat di host Docker
+        env:
+          SERVER_DIR: ${{ env.SERVER_DIR }}
+        run: |
+          set -euo pipefail
+          echo "host: $(hostname) ($(uname -m))"
 
-      - uses: docker/login-action@v3
+          for c in docker git curl cp; do
+            command -v "$c" >/dev/null 2>&1 || {
+              echo "::error::$c tidak terpasang di host runner."
+              exit 1
+            }
+          done
+          docker compose version
+
+          # Pesan khusus: user runner dulu harus masuk grup `docker`, kalau tidak
+          # setiap perintah compose gagal dengan "permission denied".
+          if ! docker info >/dev/null 2>&1; then
+            echo "::error::user runner tidak bisa mengakses Docker daemon. Tambahkan user tersebut ke grup 'docker' lalu restart service runner."
+            exit 1
+          fi
+
+          mkdir -p "$SERVER_DIR"
+          [ -w "$SERVER_DIR" ] || {
+            echo "::error::$SERVER_DIR tidak bisa ditulisi oleh user runner."
+            exit 1
+          }
+
+          if [ -f "$SERVER_DIR/.env" ]; then
+            echo "$SERVER_DIR/.env sudah ada — akan DIPERTAHANKAN (tidak ditimpa)"
+          else
+            echo "::warning::$SERVER_DIR/.env belum ada — akan dibuat dari secret ENV_FILE_B64"
+          fi
+
+          df -h "$SERVER_DIR" | tail -1
+
+  build:
+    name: build & push image
+    needs: precheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          # metadata-action menormalkan nama repo ke huruf kecil; GHCR menolak
+          # nama image yang mengandung huruf besar.
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
 
-      - uses: docker/build-push-action@v6
+      - name: Build & push image
+        uses: docker/build-push-action@v7
         with:
           context: .
+          platforms: linux/amd64
           push: true
-          tags: ghcr.io/${{ github.repository }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Scope cache yang sama dengan job `docker` di ci.yml, jadi layer
+          # yang sudah divalidasi di CI dipakai ulang di sini.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      - uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_KEY }}
-          script: |
-            cd /home/arxiva-backend
+  deploy:
+    name: deploy
+    needs: build
+    runs-on: [self-hosted]
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://api-taslim.duckdns.org/health
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v5
 
-            docker compose pull
+      - name: Deploy stack
+        env:
+          SERVER_DIR: ${{ env.SERVER_DIR }}
+          PUBLIC_URL: ${{ env.HEALTH_URL }}
+          # Dipakai untuk mempersempit `docker image prune` ke image milik repo
+          # ini (label dipasang docker/metadata-action).
+          IMAGE_SOURCE: https://github.com/${{ github.repository }}
+          # Tag immutable yang dipakai compose; `latest` tetap didorong untuk
+          # kompatibilitas, tapi deploy tidak bergantung padanya.
+          IMAGE_TAG: sha-${{ github.sha }}
+          GHCR_USER: ${{ github.actor }}
+          # GITHUB_TOKEN berlaku untuk GHCR repo ini (butuh `packages: read` di
+          # atas), jadi PAT terpisah tidak diperlukan lagi.
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Hanya dipakai untuk bootstrap: kalau `.env` sudah ada di server,
+          # secret ini diabaikan sama sekali.
+          ENV_FILE_B64: ${{ secrets.ENV_FILE_B64 }}
+        run: |
+          set -euo pipefail
+          fail() { echo "::error::$1"; exit 1; }
 
-            docker compose run --rm backend npx prisma migrate deploy
+          # --- 0. Konfigurasi stack -----------------------------------------
+          # Compose + Caddy dimiliki repo: selalu disalin ulang supaya perubahan
+          # ikut ter-deploy dan server baru tidak perlu disiapkan manual.
+          # `.env` TIDAK disalin — itu milik server.
+          mkdir -p "$SERVER_DIR"
+          cp -f docker-compose.yml Caddyfile "$SERVER_DIR"/
+          cd "$SERVER_DIR"
 
-            docker compose up -d
+          # --- 1. .env -------------------------------------------------------
+          # Hanya dibuat kalau belum ada. Sebelumnya `.env` ditimpa dari secret
+          # setiap deploy, dan itu pernah menghapus CORS_ORIGINS yang sudah
+          # diperbaiki di server — admin & mitra langsung diblokir CORS.
+          if [ ! -f .env ]; then
+            [ -n "${ENV_FILE_B64:-}" ] || fail "$SERVER_DIR/.env belum ada dan secret ENV_FILE_B64 kosong. Isi ENV_FILE_B64 (base64 dari .env) untuk bootstrap host baru."
+            umask 077
+            # Decode ke berkas sementara lalu `mv`, supaya .env tidak pernah
+            # setengah tertulis kalau proses terhenti.
+            printf '%s' "$ENV_FILE_B64" | base64 -d > .env.new
+            for key in MYSQL_ROOT_PASSWORD MYSQL_PASSWORD MYSQL_DATABASE STORAGE_ACCESS_KEY STORAGE_SECRET_KEY; do
+              grep -q "^${key}=" .env.new || fail "ENV_FILE_B64 tidak memuat ${key}"
+            done
+            mv .env.new .env
+            echo ".env dibuat dari secret ENV_FILE_B64"
+          else
+            echo ".env dipertahankan (milik server, tidak ditimpa)"
+          fi
+          chmod 600 .env
 
-            docker image prune -f
+          # Topologi selalu Caddy -> backend, jadi X-Forwarded-For harus
+          # dipercaya. Tanpa ini express-rate-limit memakai IP Caddy untuk
+          # semua klien (satu pengunjung bisa mengunci login semua orang).
+          grep -q '^TRUST_PROXY=' .env || echo 'TRUST_PROXY=1' >> .env
+          grep -q '^CORS_ORIGINS=' .env || \
+            echo '::warning::.env tidak memuat CORS_ORIGINS — klien browser/webview akan diblokir CORS.'
+
+          # Simpan .env lama: dipakai untuk rollback image DAN sebagai berkas
+          # pemulihan manual kalau deploy gagal.
+          cp -p .env .env.bak
+          PREV_IMAGE_TAG="$(sed -n 's/^IMAGE_TAG=//p' .env | tail -1 || true)"
+          # Tag dicatat ke .env supaya `docker compose up` manual di server
+          # memakai versi yang sama, bukan `latest` yang bisa berbeda.
+          sed -i '/^IMAGE_TAG=/d' .env
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> .env
+
+          # --- 2. Rollback otomatis kalau ada langkah yang gagal --------------
+          # Trap dipasang SEKARANG, tepat setelah `.env` ditimpa. Kalau dipasang
+          # belakangan, kegagalan di langkah berikutnya meninggalkan `.env`
+          # berisi IMAGE_TAG baru sementara container masih versi lama.
+          restore() {
+            rc=$?
+            # Jangan `[ ... ] && return` — dengan `set -e` hasil non-zero dari
+            # compound command membuat shell keluar sebelum rollback dijalankan.
+            if [ "$rc" -eq 0 ]; then return 0; fi
+            echo "::error::deploy gagal (exit=$rc) — menjalankan rollback"
+            docker compose ps >&2 || true
+            docker compose logs --tail 80 backend >&2 || true
+            if [ -n "$PREV_IMAGE_TAG" ] && [ "$PREV_IMAGE_TAG" != "${IMAGE_TAG:-}" ]; then
+              echo "rollback ke ${PREV_IMAGE_TAG}" >&2
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=${PREV_IMAGE_TAG}|" .env || true
+              # Backend sengaja tidak ditunggu: tujuan rollback adalah memulihkan
+              # layanan, bukan menggagalkan job lebih lama lagi.
+              docker compose up -d --no-deps backend || true
+            else
+              echo "tidak ada image sebelumnya — rollback dilewati" >&2
+            fi
+          }
+          trap restore EXIT
+
+          # Kredensial object storage dibaca RustFS dari env setiap start, jadi
+          # recreate dilakukan di sini supaya kredensial di `.env` benar-benar
+          # terpakai (bukan hanya saat container pertama kali dibuat).
+          docker compose up -d --force-recreate rustfs
+          for i in $(seq 1 30); do
+            # Port S3 hanya di-bind ke loopback, jadi cek dari dalam container.
+            if docker compose exec -T rustfs sh -c 'curl -fsS --max-time 3 http://127.0.0.1:9000/health' >/dev/null 2>&1; then break; fi
+            if [ "$i" -eq 30 ]; then echo "RustFS tidak siap" >&2; exit 1; fi
+            sleep 2
+          done
+
+          # --- 3. Siapkan image ---------------------------------------------
+          if [ -n "${GHCR_TOKEN:-}" ]; then
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+          else
+            echo "::warning::GHCR_TOKEN kosong — pull hanya berhasil bila package publik."
+          fi
+
+          docker compose config -q
+
+          # Pull hanya image backend; image lain memakai tag fixed/floating dan
+          # tidak boleh ikut ter-upgrade diam-diam saat deploy.
+          docker compose pull backend
+
+          # --- 4. Database ---------------------------------------------------
+          docker compose up -d mariadb
+          for i in $(seq 1 30); do
+            if docker compose exec -T mariadb \
+              sh -c 'exec mariadb-admin ping -uroot -p"$MYSQL_ROOT_PASSWORD" --silent' >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$i" -eq 30 ]; then echo "MariaDB tidak siap" >&2; exit 1; fi
+            sleep 2
+          done
+
+          # Backup sebelum migrasi. Nama database dibaca dari env container, bukan
+          # hardcode — sempat tertulis `arxiva` padahal DB produksi bernama lain,
+          # sehingga backup menghasilkan dump kosong.
+          mkdir -p backups
+          BACKUP="backups/db-$(date +%Y%m%d-%H%M%S).sql"
+          docker compose exec -T mariadb \
+            sh -c 'exec mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --single-transaction --routines --events "$MYSQL_DATABASE"' \
+            > "$BACKUP"
+          if [ ! -s "$BACKUP" ] || [ "$(wc -c < "$BACKUP")" -lt 1024 ]; then
+            echo "backup tidak wajar (ukuran $(wc -c < "$BACKUP") byte): $BACKUP" >&2
+            exit 1
+          fi
+          echo "backup: $BACKUP ($(wc -c < "$BACKUP") byte)"
+          find backups -name 'db-*.sql' -type f -mtime +7 -delete
+
+          # Migrasi dijalankan di container sekali-pakai, bukan saat start
+          # container produksi (Dockerfile CMD hanya `node app.js`).
+          docker compose run --rm --no-deps backend npx prisma migrate deploy
+
+          # --- 5. Naikkan stack ----------------------------------------------
+          docker compose up -d --remove-orphans --wait --wait-timeout 240
+
+          # (a) Health check dari dalam container: membuktikan proses hidup.
+          healthy=0
+          for i in $(seq 1 12); do
+            if docker compose exec -T backend node -e \
+              "fetch('http://127.0.0.1:' + (process.env.PORT || 3000) + '/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"; then
+              echo "health check internal OK"
+              healthy=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$healthy" -eq 1 ] || { echo "health check internal gagal" >&2; exit 1; }
+
+          # (b) Smoke test lewat domain publik: membuktikan Caddy, TLS, dan rute
+          # proxy ikut sehat — bukan hanya proses backend-nya.
+          if [ -n "${PUBLIC_URL:-}" ]; then
+            public_ok=0
+            for i in $(seq 1 6); do
+              if curl -fsS --max-time 5 "$PUBLIC_URL" >/dev/null 2>&1; then
+                echo "smoke test publik OK ($PUBLIC_URL)"
+                public_ok=1
+                break
+              fi
+              sleep 5
+            done
+            [ "$public_ok" -eq 1 ] || { echo "smoke test publik gagal: $PUBLIC_URL" >&2; exit 1; }
+          fi
+
+          # Bersihkan image lama MILIK REPO INI SAJA. `docker image prune -af`
+          # tanpa filter menghapus cache semua aplikasi di host yang sama; label
+          # source dipasang metadata-action pada setiap image kita. Image yang
+          # sedang dipakai container tidak ikut terhapus.
+          if [ -n "${IMAGE_SOURCE:-}" ]; then
+            docker image prune -af --filter "until=336h" --filter "label=org.opencontainers.image.source=${IMAGE_SOURCE}" >/dev/null
+          fi
+
+          trap - EXIT
+          echo "deploy selesai: ${IMAGE_TAG}"

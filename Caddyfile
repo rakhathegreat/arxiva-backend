@@ -1,0 +1,8 @@
+api-taslim.duckdns.org {
+    # Objek publik (gambar item/recon) di-serve lewat object storage.
+    # URL yang tersimpan di DB berbentuk {STORAGE_PUBLIC_URL}/{bucket}/{object}.
+    handle_path /storage/* {
+        reverse_proxy rustfs:9000
+    }
+    reverse_proxy backend:3000
+}

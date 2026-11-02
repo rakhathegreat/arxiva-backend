@@ -1,4 +1,10 @@
 arxiva-service-account-key.json
 .env
+.env.*
+!.env.example
 node_modules
 /src/generated/prisma
+coverage
+public/uploads/
+.DS_Store
+audit-report.json

@@ -1,31 +1,52 @@
 {
   "name": "arxiva-backend",
-  "version": "1.0.0",
+  "version": "2.0.7",
   "description": "Backend for arxiva",
   "license": "ISC",
   "author": "",
   "type": "module",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
     "dev": "node --watch --env-file=.env app.js",
-    "start": "node --env-file=.env app.js",
-    "seed": "node prisma/seeder.js"
+    "start": "node app.js",
+    "seed": "node prisma/seeder.js",
+    "seed:demo": "node --env-file=.env prisma/seed-demo.js",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format:check": "prettier --check ."
+  },
+  "engines": {
+    "node": ">=22"
   },
   "prisma": {
     "seed": "node prisma/seeder.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1161.0",
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "googleapis": "^173.0.0",
+    "express-rate-limit": "^8.7.1",
+    "googleapis": "^144.0.0",
+    "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "prisma": "^6.19.3"
+    "multer": "^2.2.0",
+    "pdfmake": "^0.3.11",
+    "prisma": "^6.19.3",
+    "swagger-jsdoc": "^6.3.0",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^16.5.0",
+    "nodemon": "^3.1.14",
+    "prettier": "^3.9.10",
+    "vitest": "^4.1.11"
   }
 }

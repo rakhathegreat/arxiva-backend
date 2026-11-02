@@ -1,0 +1,16 @@
+node_modules
+dist
+coverage
+src-tauri
+*.lock
+package-lock.json
+arxiva-mobile/database
+arxiva-backend/prisma/generated
+arxiva-backend/src/generated
+*.diff
+*.pdf
+*.svg
+*.png
+*.ico
+*.icns
+audit-report.json

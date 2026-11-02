@@ -1,0 +1,23 @@
+# Sengaja tidak dipakai di image: memperkecil build context dan mencegah
+# .env / kredensial ikut terkirim ke Docker daemon.
+node_modules
+npm-debug.log*
+
+.git
+.gitignore
+.github
+
+.env
+.env.*
+!.env.example
+
+coverage
+backups
+public/uploads
+database
+scripts
+tests
+
+*.md
+.DS_Store
+*.pdf

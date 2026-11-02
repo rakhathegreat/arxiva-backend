@@ -1,0 +1,156 @@
+name: CI
+
+# Dijalankan untuk setiap PR/push, dan dipakai ulang oleh deploy.yml
+# (reusable workflow) supaya deploy tidak pernah melewati gate kualitas.
+on:
+  push:
+    # `main` sengaja TIDAK didaftarkan: push ke main ditangani Deploy, yang
+    # memanggil workflow ini lewat `workflow_call`. Mendaftarkannya di sini
+    # membuat lint + seluruh tes + docker build jalan dua kali untuk commit
+    # yang sama. Lewat workflow_call, main tetap tervalidasi (tidak lagi
+    # "hijau karena tidak pernah jalan").
+    branches: [development]
+  pull_request:
+  workflow_dispatch:
+  # Dipakai Deploy sebagai gate kualitas.
+  workflow_call:
+    inputs:
+      build_image:
+        description: 'Bangun image tanpa push (Deploy mematikannya: ia sudah membangun image sendiri)'
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: read
+
+# PR yang sudah usang boleh dibatalkan; push ke main/development jangan, karena
+# Deploy memakai workflow ini sebagai gate dan run yang dibatalkan di tengah
+# jalan akan memblokir deploy yang sedang menunggu.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: '22' # samakan dengan image runtime (node:22-alpine)
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # prisma.config.ts memakai env("DATABASE_URL"); `prisma generate` gagal
+      # kalau variabel ini kosong.
+      DATABASE_URL: mysql://admin:ci-test-password@127.0.0.1:3306/arxiva_ci
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run format:check
+
+  test:
+    name: unit + integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        # Pin minor: `mariadb:11` bergerak sendiri dan bisa mengubah perilaku
+        # healthcheck / dialek SQL tanpa perubahan di repo.
+        image: mariadb:11.8
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: arxiva_test
+          MARIADB_USER: admin
+          MARIADB_PASSWORD: arxiva123
+        ports:
+          - 3306:3306
+        # Service baru dianggap siap setelah healthcheck lulus; tanpa opsi ini
+        # langkah migrasi bisa kena "connection refused".
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      NODE_ENV: test
+      # Dipakai `prisma migrate deploy`; tes integrasi memakai TEST_DATABASE_URL
+      # (lihat src/shared/prisma.js — PRISMA_DATASOURCE_URL menimpa DATABASE_URL).
+      DATABASE_URL: mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test
+      TEST_DATABASE_URL: mysql://admin:arxiva123@127.0.0.1:3306/arxiva_test
+      JWT_SECRET: ci-test-secret-not-for-production
+      RATE_LIMIT_DISABLED: 'true'
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Apply migrations
+        # fileParallelism dimatikan di vitest.config.mjs: tes integrasi berbagi
+        # satu MariaDB dan paralel antar-file memicu deadlock row lock.
+        run: npx prisma migrate deploy
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+  # Validasi image tanpa push. Tujuannya menangkap kerusakan Dockerfile /
+  # lockfile di PR, bukan saat deploy (sempat terjadi: `npm ci` gagal karena
+  # package-lock.json tidak sinkron dan baru ketahuan di pipeline deploy).
+  #
+  # Catatan: `github.event_name` di reusable workflow berisi event CALLER
+  # (bukan "workflow_call"), jadi memakainya sebagai kondisi tidak akan pernah
+  # melewati job ini dan image dibangun dua kali per deploy. Karena itu Deploy
+  # mematikan job ini lewat input `build_image: false`.
+  docker:
+    name: docker build
+    # `!= false` (bukan `== true`): untuk trigger `push`/`pull_request` context
+    # `inputs` kosong, sehingga `inputs.build_image` bernilai null. Dengan
+    # `== true` job ini justru mati di jalur yang paling sering dipakai.
+    if: inputs.build_image != false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build image (tanpa push)
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: false
+          load: false
+          # Scope cache yang sama dengan Deploy: layer yang dibangun di sini
+          # langsung dipakai ulang, sehingga build deploy hampir instan.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
